@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+
+{% block title %}Vostok - Climate Data Analysis{% endblock %}
+
+{% block content %}
+<div class="chat-container">
+    <div id="chat-messages" class="chat-messages">
+        <div class="message system-message">
+            <h3>Welcome to Vostok</h3>
+            <p>I can help you analyze ERA5 climate data. Try:</p>
+            <ul>
+                <li>"Show me SST for California coast, Jan 2024"</li>
+                <li>"Plot temperature in the Gulf of Mexico"</li>
+            </ul>
+        </div>
+    </div>
+
+    <div class="chat-input-container">
+        <form id="chat-form" class="chat-form">
+            <textarea
+                id="message-input"
+                placeholder="Ask about climate data..."
+                rows="1"
+            ></textarea>
+            <button type="submit" id="send-btn" disabled>Send</button>
+        </form>
+        <div class="input-hints">
+            <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for new line
+        </div>
+    </div>
+</div>
+
+<dialog id="cache-modal">
+    <article>
+        <header>
+            <h3>Cached Datasets</h3>
+            <button class="close-modal">&times;</button>
+        </header>
+        <div id="cache-content">
+            <p>Loading...</p>
+        </div>
+    </article>
+</dialog>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/chat.js"></script>
+{% endblock %}

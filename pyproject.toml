@@ -60,6 +60,13 @@ agent = [
     "scipy>=1.10.0",
     "seaborn>=0.12.0",
 ]
+web = [
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.27.0",
+    "jinja2>=3.1.0",
+    "python-multipart>=0.0.6",
+    "websockets>=12.0",
+]
 dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
@@ -84,6 +91,7 @@ Issues = "https://github.com/yourusername/era5-mcp/issues"
 [project.scripts]
 vostok-mcp = "vostok.server:main"
 vostok-agent = "vostok.agent:main"
+vostok-web = "web.app:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vostok"]

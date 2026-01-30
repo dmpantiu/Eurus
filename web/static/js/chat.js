@@ -1,0 +1,460 @@
+/**
+ * Vostok Chat WebSocket Client
+ */
+
+class VostokChat {
+    constructor() {
+        this.ws = null;
+        this.messageId = 0;
+        this.currentAssistantMessage = null;
+        this.isConnected = false;
+        this.reconnectAttempts = 0;
+        this.maxReconnectAttempts = 5;
+        this.reconnectDelay = 1000;
+
+        this.messagesContainer = document.getElementById('chat-messages');
+        this.messageInput = document.getElementById('message-input');
+        this.chatForm = document.getElementById('chat-form');
+        this.sendBtn = document.getElementById('send-btn');
+        this.connectionStatus = document.getElementById('connection-status');
+        this.clearBtn = document.getElementById('clear-btn');
+        this.cacheBtn = document.getElementById('cache-btn');
+        this.cacheModal = document.getElementById('cache-modal');
+
+        marked.setOptions({
+            highlight: (code, lang) => {
+                if (lang && hljs.getLanguage(lang)) {
+                    return hljs.highlight(code, { language: lang }).value;
+                }
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true,
+            gfm: true
+        });
+
+        this.init();
+    }
+
+    init() {
+        this.connect();
+        this.setupEventListeners();
+        this.setupImageModal();
+    }
+
+    connect() {
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/chat`;
+
+        this.updateConnectionStatus('connecting');
+
+        try {
+            this.ws = new WebSocket(wsUrl);
+
+            this.ws.onopen = () => {
+                this.isConnected = true;
+                this.reconnectAttempts = 0;
+                this.updateConnectionStatus('connected');
+                this.sendBtn.disabled = false;
+            };
+
+            this.ws.onclose = () => {
+                this.isConnected = false;
+                this.updateConnectionStatus('disconnected');
+                this.sendBtn.disabled = true;
+                this.attemptReconnect();
+            };
+
+            this.ws.onerror = () => {
+                this.updateConnectionStatus('disconnected');
+            };
+
+            this.ws.onmessage = (event) => {
+                this.handleMessage(JSON.parse(event.data));
+            };
+
+        } catch (error) {
+            this.updateConnectionStatus('disconnected');
+        }
+    }
+
+    attemptReconnect() {
+        if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+
+        this.reconnectAttempts++;
+        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
+
+        this.updateConnectionStatus('connecting');
+        setTimeout(() => this.connect(), delay);
+    }
+
+    updateConnectionStatus(status) {
+        this.connectionStatus.className = 'status-badge ' + status;
+        const text = { connected: 'Connected', disconnected: 'Disconnected', connecting: 'Connecting...' };
+        this.connectionStatus.textContent = text[status] || status;
+    }
+
+    setupEventListeners() {
+        this.chatForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            this.sendMessage();
+        });
+
+        this.messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                this.sendMessage();
+            }
+        });
+
+        this.messageInput.addEventListener('input', () => {
+            this.messageInput.style.height = 'auto';
+            this.messageInput.style.height = Math.min(this.messageInput.scrollHeight, 150) + 'px';
+        });
+
+        this.clearBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.clearChat();
+        });
+
+        this.cacheBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            this.showCacheModal();
+        });
+
+        this.cacheModal.querySelector('.close-modal').addEventListener('click', () => {
+            this.cacheModal.close();
+        });
+    }
+
+    setupImageModal() {
+        // Create modal for enlarged images
+        const modal = document.createElement('div');
+        modal.id = 'image-modal';
+        modal.innerHTML = `
+            <div class="image-modal-backdrop"></div>
+            <div class="image-modal-content">
+                <img src="" alt="Enlarged plot">
+                <div class="image-modal-actions">
+                    <button class="download-btn">Download</button>
+                    <button class="close-btn">Close</button>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        // Add modal styles
+        const style = document.createElement('style');
+        style.textContent = `
+            #image-modal {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                z-index: 1000;
+            }
+            #image-modal.active {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .image-modal-backdrop {
+                position: absolute;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0,0,0,0.8);
+            }
+            .image-modal-content {
+                position: relative;
+                max-width: 90%;
+                max-height: 90%;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+            }
+            .image-modal-content img {
+                max-width: 100%;
+                max-height: calc(90vh - 60px);
+                border-radius: 4px;
+            }
+            .image-modal-actions {
+                margin-top: 12px;
+                display: flex;
+                gap: 8px;
+            }
+            .image-modal-actions button {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+            .image-modal-actions .download-btn {
+                background: #1976d2;
+                color: white;
+            }
+            .image-modal-actions .close-btn {
+                background: #757575;
+                color: white;
+            }
+        `;
+        document.head.appendChild(style);
+
+        // Event listeners
+        modal.querySelector('.image-modal-backdrop').addEventListener('click', () => {
+            modal.classList.remove('active');
+        });
+
+        modal.querySelector('.close-btn').addEventListener('click', () => {
+            modal.classList.remove('active');
+        });
+
+        modal.querySelector('.download-btn').addEventListener('click', () => {
+            const img = modal.querySelector('img');
+            const link = document.createElement('a');
+            link.href = img.src;
+            link.download = 'vostok_plot.png';
+            link.click();
+        });
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && modal.classList.contains('active')) {
+                modal.classList.remove('active');
+            }
+        });
+
+        this.imageModal = modal;
+    }
+
+    showImageModal(src) {
+        this.imageModal.querySelector('img').src = src;
+        this.imageModal.classList.add('active');
+    }
+
+    sendMessage() {
+        const message = this.messageInput.value.trim();
+        if (!message || !this.isConnected) return;
+
+        this.addUserMessage(message);
+        this.ws.send(JSON.stringify({ message }));
+
+        this.messageInput.value = '';
+        this.messageInput.style.height = 'auto';
+        this.sendBtn.disabled = true;
+    }
+
+    handleMessage(data) {
+        switch (data.type) {
+            case 'thinking':
+                this.showThinkingIndicator();
+                break;
+
+            case 'chunk':
+                this.appendToAssistantMessage(data.content);
+                break;
+
+            case 'plot':
+                this.addPlot(data.data, data.path);
+                break;
+
+            case 'complete':
+                this.finalizeAssistantMessage(data.content);
+                this.sendBtn.disabled = false;
+                break;
+
+            case 'error':
+                this.showError(data.content);
+                this.sendBtn.disabled = false;
+                break;
+
+            case 'clear':
+                this.clearMessagesUI();
+                break;
+        }
+    }
+
+    addUserMessage(content) {
+        const div = document.createElement('div');
+        div.className = 'message user-message';
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">You</span>
+            </div>
+            <div class="message-content">${this.escapeHtml(content)}</div>
+        `;
+        this.messagesContainer.appendChild(div);
+        this.scrollToBottom();
+    }
+
+    showThinkingIndicator() {
+        this.removeThinkingIndicator();
+
+        const div = document.createElement('div');
+        div.className = 'message thinking-message';
+        div.id = 'thinking-indicator';
+        div.innerHTML = `
+            <div class="typing-indicator">
+                <span></span><span></span><span></span>
+            </div>
+        `;
+        this.messagesContainer.appendChild(div);
+        this.scrollToBottom();
+    }
+
+    removeThinkingIndicator() {
+        const indicator = document.getElementById('thinking-indicator');
+        if (indicator) indicator.remove();
+    }
+
+    appendToAssistantMessage(content) {
+        this.removeThinkingIndicator();
+
+        if (!this.currentAssistantMessage) {
+            this.currentAssistantMessage = document.createElement('div');
+            this.currentAssistantMessage.className = 'message assistant-message';
+            this.currentAssistantMessage.innerHTML = `
+                <div class="message-header">
+                    <span class="message-role">Vostok</span>
+                </div>
+                <div class="message-content markdown-content"></div>
+                <div class="message-plots"></div>
+            `;
+            this.messagesContainer.appendChild(this.currentAssistantMessage);
+        }
+
+        const contentDiv = this.currentAssistantMessage.querySelector('.message-content');
+        const raw = (contentDiv.getAttribute('data-raw') || '') + content;
+        contentDiv.setAttribute('data-raw', raw);
+        contentDiv.innerHTML = marked.parse(raw);
+
+        contentDiv.querySelectorAll('pre code').forEach(block => hljs.highlightElement(block));
+        this.scrollToBottom();
+    }
+
+    addPlot(base64Data, path) {
+        this.removeThinkingIndicator();
+
+        if (!this.currentAssistantMessage) {
+            this.appendToAssistantMessage('');
+        }
+
+        const plotsDiv = this.currentAssistantMessage.querySelector('.message-plots');
+
+        const figure = document.createElement('figure');
+        figure.className = 'plot-figure';
+
+        const imgSrc = `data:image/png;base64,${base64Data}`;
+
+        figure.innerHTML = `
+            <img src="${imgSrc}" alt="Generated plot">
+            <div class="plot-actions">
+                <button class="enlarge-btn" title="Enlarge">Enlarge</button>
+                <button class="download-btn" title="Download">Download</button>
+            </div>
+        `;
+
+        // Add enlarge action
+        figure.querySelector('.enlarge-btn').addEventListener('click', () => {
+            this.showImageModal(imgSrc);
+        });
+
+        // Add download action
+        figure.querySelector('.download-btn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = imgSrc;
+            const filename = path ? path.split('/').pop() : 'vostok_plot.png';
+            link.download = filename;
+            link.click();
+        });
+
+        // Click on image to enlarge
+        figure.querySelector('img').addEventListener('click', () => {
+            this.showImageModal(imgSrc);
+        });
+
+        plotsDiv.appendChild(figure);
+        this.scrollToBottom();
+    }
+
+    finalizeAssistantMessage(content) {
+        this.removeThinkingIndicator();
+        if (content && !this.currentAssistantMessage) {
+            this.appendToAssistantMessage(content);
+        }
+        this.currentAssistantMessage = null;
+    }
+
+    showError(message) {
+        this.removeThinkingIndicator();
+
+        const div = document.createElement('div');
+        div.className = 'message error-message';
+        div.innerHTML = `
+            <div class="message-header">
+                <span class="message-role">Error</span>
+            </div>
+            <div class="message-content">${this.escapeHtml(message)}</div>
+        `;
+        this.messagesContainer.appendChild(div);
+        this.currentAssistantMessage = null;
+        this.scrollToBottom();
+    }
+
+    async clearChat() {
+        if (!confirm('Clear conversation?')) return;
+
+        try {
+            const response = await fetch('/api/conversation', { method: 'DELETE' });
+            if (response.ok) this.clearMessagesUI();
+        } catch (error) {
+            console.error('Error clearing:', error);
+        }
+    }
+
+    clearMessagesUI() {
+        const messages = this.messagesContainer.querySelectorAll('.message:not(.system-message)');
+        messages.forEach(msg => msg.remove());
+        this.currentAssistantMessage = null;
+    }
+
+    async showCacheModal() {
+        this.cacheModal.showModal();
+        const content = document.getElementById('cache-content');
+        content.innerHTML = '<p>Loading...</p>';
+
+        try {
+            const response = await fetch('/api/cache');
+            const data = await response.json();
+
+            if (data.datasets && data.datasets.length > 0) {
+                let html = '<table><thead><tr><th>Variable</th><th>Period</th><th>Type</th></tr></thead><tbody>';
+                for (const ds of data.datasets) {
+                    html += `<tr><td>${ds.variable}</td><td>${ds.start_date} to ${ds.end_date}</td><td>${ds.query_type}</td></tr>`;
+                }
+                html += '</tbody></table>';
+                content.innerHTML = html;
+            } else {
+                content.innerHTML = '<p>No cached datasets.</p>';
+            }
+        } catch (error) {
+            content.innerHTML = `<p>Error: ${error.message}</p>`;
+        }
+    }
+
+    scrollToBottom() {
+        this.messagesContainer.scrollTop = this.messagesContainer.scrollHeight;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+    window.vostokChat = new VostokChat();
+});

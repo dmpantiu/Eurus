@@ -52,9 +52,15 @@ class JupyterKernelExecutor:
     - Automatic plot capture and saving
     - Enhanced output handling
     - Timeout management with kernel interrupt
+    - Optional plot callback for web interface
     """
 
-    def __init__(self, working_dir: str = None, timeout: float = 300.0):
+    def __init__(
+        self,
+        working_dir: str = None,
+        timeout: float = 300.0,
+        on_plot_callback: Optional[Any] = None
+    ):
         self._working_dir = working_dir or os.getcwd()
         self._timeout = timeout
         self._plots_dir = Path(PLOTS_DIR)
@@ -62,6 +68,9 @@ class JupyterKernelExecutor:
 
         self._plot_counter = 0
         self._captured_plots: List[str] = []
+
+        # Callback for web interface plot streaming
+        self._on_plot_callback = on_plot_callback
 
         self.km = KernelManager(kernel_name='python3')
         self.kc: Optional[KernelClient] = None
@@ -101,9 +110,8 @@ import numpy as np
 import xarray as xr
 from datetime import datetime, timedelta
 
-# Visualization
-import matplotlib
-matplotlib.use('Agg')  # Headless backend for stability
+# Visualization - use inline backend for automatic plot capture
+%matplotlib inline
 import matplotlib.pyplot as plt
 
 # Set matplotlib defaults
@@ -240,6 +248,10 @@ print("Pre-loaded: pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
             "success": len(error_parts) == 0
         }
 
+    def set_plot_callback(self, callback: Any):
+        """Set callback for plot events (used by web interface)."""
+        self._on_plot_callback = callback
+
     def _save_captured_image(self, base64_data: str) -> str:
         """Save a base64-encoded image to the plots directory."""
         self._plot_counter += 1
@@ -252,10 +264,17 @@ print("Pre-loaded: pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
             with open(filepath, 'wb') as f:
                 f.write(image_data)
             logger.info(f"Plot saved: {filepath}")
-            
+
+            # Call the plot callback if registered (for web interface)
+            if self._on_plot_callback:
+                try:
+                    self._on_plot_callback(base64_data, str(filepath))
+                except Exception as e:
+                    logger.error(f"Plot callback error: {e}")
+
             # Display in terminal if supported
             self._display_image_in_terminal(base64_data)
-            
+
             return str(filepath)
         except Exception as e:
             logger.error(f"Failed to save plot: {e}")

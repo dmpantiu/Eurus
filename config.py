@@ -349,6 +349,10 @@ class AgentConfig:
         "matplotlib", "matplotlib.pyplot", "datetime"
     ])
 
+    # Web Interface Settings
+    web_host: str = "127.0.0.1"
+    web_port: int = 8000
+
     # Logging
     log_level: str = "INFO"
     log_to_file: bool = True
@@ -404,12 +408,11 @@ print(ds)
 
 **Visualization Best Practices:**
 ```python
-# ALWAYS save figures - they display automatically
+# Create figure and plot
 fig, ax = plt.subplots(figsize=(12, 8))
 # ... plotting code ...
-plt.savefig('./data/plots/my_plot.png', dpi=150, bbox_inches='tight')
-plt.close()
-print("Plot saved to: ./data/plots/my_plot.png")
+plt.tight_layout()
+plt.show()  # ALWAYS call plt.show() to display the plot
 ```
 
 ### 3. MEMORY
@@ -421,7 +424,7 @@ Ask me to "recall" or "remember" what we discussed.
 1. **UNDERSTAND** the question - clarify if needed
 2. **RETRIEVE** data with appropriate query_type and bounds
 3. **ANALYZE** using Python - always print() results
-4. **VISUALIZE** when helpful - save plots to ./data/plots/
+4. **VISUALIZE** when helpful - use plt.show() to display plots
 5. **SYNTHESIZE** findings into clear answers
 
 ## TIPS

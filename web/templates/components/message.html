@@ -1,0 +1,53 @@
+<!-- User message template -->
+<div class="message user-message" data-message-id="{{ message_id }}">
+    <div class="message-header">
+        <span class="message-role">You</span>
+        <span class="message-time">{{ timestamp }}</span>
+    </div>
+    <div class="message-content">
+        {{ content }}
+    </div>
+</div>
+
+<!-- Assistant message template -->
+<div class="message assistant-message" data-message-id="{{ message_id }}">
+    <div class="message-header">
+        <span class="message-role">Vostok</span>
+        <span class="message-time">{{ timestamp }}</span>
+    </div>
+    <div class="message-content markdown-content">
+        {{ content }}
+    </div>
+    {% if plots %}
+    <div class="message-plots">
+        {% for plot in plots %}
+        <figure class="plot-figure">
+            <img src="{{ plot.url }}" alt="Generated plot" loading="lazy">
+            {% if plot.path %}
+            <figcaption>{{ plot.path }}</figcaption>
+            {% endif %}
+        </figure>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
+
+<!-- Thinking indicator template -->
+<div class="message thinking-message" data-message-id="{{ message_id }}">
+    <div class="message-header">
+        <span class="message-role">Vostok</span>
+    </div>
+    <div class="message-content">
+        <span aria-busy="true">Thinking...</span>
+    </div>
+</div>
+
+<!-- Code execution template -->
+<div class="message code-message" data-message-id="{{ message_id }}">
+    <div class="message-header">
+        <span class="message-role">Executing Code</span>
+    </div>
+    <div class="message-content">
+        <pre><code class="language-python">{{ code }}</code></pre>
+    </div>
+</div>

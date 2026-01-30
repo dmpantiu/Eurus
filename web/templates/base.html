@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}Vostok{% endblock %}</title>
+
+    <!-- Custom styles only -->
+    <link rel="stylesheet" href="/static/css/style.css">
+
+    <!-- Marked.js for markdown -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <!-- Highlight.js for code -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/highlight.js@11/styles/github.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/highlight.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/highlight.js@11/languages/python.min.js"></script>
+
+    {% block head %}{% endblock %}
+</head>
+<body>
+    <header>
+        <nav>
+            <ul>
+                <li><span class="logo">Vostok</span></li>
+            </ul>
+            <ul>
+                <li><a href="#" id="clear-btn">Clear</a></li>
+                <li><a href="#" id="cache-btn">Cache</a></li>
+                <li>
+                    <span id="connection-status" class="status-badge disconnected">
+                        Disconnected
+                    </span>
+                </li>
+            </ul>
+        </nav>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        Vostok Climate Agent
+    </footer>
+
+    {% block scripts %}{% endblock %}
+</body>
+</html>
