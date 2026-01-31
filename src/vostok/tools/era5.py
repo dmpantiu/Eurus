@@ -11,25 +11,27 @@ Features:
 - Validation and error handling
 """
 
+import json
+import logging
 import os
+import shutil
 import sys
 import time
-import shutil
-import logging
 from pathlib import Path
 from typing import Literal, Optional, Tuple
 from datetime import datetime, timedelta
+from urllib.request import Request, urlopen
 
 import xarray as xr
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import StructuredTool
 
-from config import (
+from ..config import (
     DATA_DIR, PLOTS_DIR,
     get_variable_info, get_short_name, list_available_variables,
     ERA5_VARIABLES, GEOGRAPHIC_REGIONS, format_file_size
 )
-from memory import get_memory
+from ..memory import get_memory
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -115,9 +117,11 @@ class ERA5RetrievalArgs(BaseModel):
     @field_validator('variable_id')
     @classmethod
     def validate_variable(cls, v: str) -> str:
+        from ..config import get_all_short_names
+        valid_vars = get_all_short_names()
         short_name = get_short_name(v)
-        if short_name not in ['sst', 't2', 'u10', 'v10', 'sp', 'mslp', 'tcc', 'cp', 'lsp', 'tp']:
-            logger.warning(f"Variable '{v}' may not be available. Will attempt anyway.")
+        if short_name not in valid_vars:
+            raise ValueError(f"Unknown variable '{v}'. Valid options: {', '.join(sorted(valid_vars))}")
         return v
 
 
@@ -125,19 +129,39 @@ class ERA5RetrievalArgs(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def generate_filename(variable: str, query_type: str, start: str, end: str) -> str:
-    """Generate a descriptive filename for the dataset."""
+def generate_filename(
+    variable: str, 
+    query_type: str, 
+    start: str, 
+    end: str,
+    region: Optional[str] = None,
+    lat_bounds: Optional[Tuple[float, float]] = None,
+    lon_bounds: Optional[Tuple[float, float]] = None
+) -> str:
+    """Generate a descriptive filename for the dataset including region/bounds."""
     clean_var = variable.replace('_', '')
     clean_start = start.replace('-', '')
     clean_end = end.replace('-', '')
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}.zarr"
+    
+    # Add region or compact lat/lon to filename
+    if region:
+        region_tag = region.lower().replace(' ', '_')
+    elif lat_bounds and lon_bounds:
+        # Create compact bounds tag: lat1to52_lon8to15
+        lat_min, lat_max = lat_bounds
+        lon_min, lon_max = lon_bounds
+        region_tag = f"lat{int(lat_min)}to{int(lat_max)}_lon{int(lon_min)}to{int(lon_max)}"
+    else:
+        region_tag = "global"
+    
+    return f"era5_{clean_var}_{query_type}_{region_tag}_{clean_start}_{clean_end}.zarr"
 
 
 def get_bounds_from_region(region: str) -> Optional[Tuple[float, float, float, float]]:
     """Get lat/lon bounds from a named region."""
     if region and region.lower() in GEOGRAPHIC_REGIONS:
         r = GEOGRAPHIC_REGIONS[region.lower()]
-        return (r["min_lat"], r["max_lat"], r["min_lon"], r["max_lon"])
+        return (r.min_lat, r.max_lat, r.min_lon, r.max_lon)
     return None
 
 
@@ -191,10 +215,59 @@ def retrieve_era5_data(
     """
     memory = get_memory()
 
+    def _ensure_aws_region(api_key: str) -> None:
+        try:
+            req = Request(
+                "https://api.earthmover.io/repos/earthmover-public/era5-surface-aws",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urlopen(req, timeout=30) as resp:
+                payload = resp.read().decode("utf-8")
+            repo_meta = json.loads(payload)
+        except Exception:
+            return
+
+        if not isinstance(repo_meta, dict):
+            return
+
+        bucket = repo_meta.get("bucket")
+        if not isinstance(bucket, dict):
+            return
+
+        extra_cfg = bucket.get("extra_config")
+        if not isinstance(extra_cfg, dict):
+            return
+
+        region_name = extra_cfg.get("region_name")
+        if not isinstance(region_name, str) or not region_name:
+            return
+
+        updated = False
+        if "AWS_REGION" not in os.environ:
+            os.environ["AWS_REGION"] = region_name
+            updated = True
+        if "AWS_DEFAULT_REGION" not in os.environ:
+            os.environ["AWS_DEFAULT_REGION"] = region_name
+            updated = True
+        if "AWS_ENDPOINT_URL" not in os.environ:
+            os.environ["AWS_ENDPOINT_URL"] = f"https://s3.{region_name}.amazonaws.com"
+            updated = True
+        if "AWS_S3_ENDPOINT" not in os.environ:
+            os.environ["AWS_S3_ENDPOINT"] = f"https://s3.{region_name}.amazonaws.com"
+            updated = True
+
+        if updated:
+            logger.info(
+                "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
+                region_name,
+                os.environ.get("AWS_ENDPOINT_URL"),
+            )
+
     # Get API key
     api_key = os.environ.get("ARRAYLAKE_API_KEY")
     if not api_key:
         return "Error: ARRAYLAKE_API_KEY not found in environment. Please set it in .env file."
+    _ensure_aws_region(api_key)
 
     # Check icechunk is available
     try:
@@ -222,7 +295,12 @@ def retrieve_era5_data(
     output_dir = Path(DATA_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = generate_filename(short_var, query_type, start_date, end_date)
+    filename = generate_filename(
+        short_var, query_type, start_date, end_date,
+        region=region,
+        lat_bounds=(min_latitude, max_latitude),
+        lon_bounds=(min_longitude, max_longitude)
+    )
     local_path = str(output_dir / filename)
 
     # Check cache first
@@ -317,19 +395,45 @@ def retrieve_era5_data(
             req_max = max_longitude % 360
 
             if req_min > req_max:
-                # Crosses prime meridian - for now just take the eastern part
-                lon_slice = slice(req_min, 359.75)
-                logger.warning("Region crosses prime meridian - taking eastern portion only")
+                # Crosses prime meridian - stitch two slices together
+                logger.info("Region crosses prime meridian. Stitching datasets...")
+                print("Region crosses prime meridian. Downloading and stitching two slices...")
+                
+                # Slice 1: req_min to 360 (Western portion in 0-360 terms)
+                subset_west = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=slice(req_min, 359.75)
+                )
+                # Slice 2: 0 to req_max (Eastern portion)
+                subset_east = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=slice(0, req_max)
+                )
+                # Shift East slice to maintain continuous coordinates (0 → 360, 5 → 365, etc.)
+                subset_east = subset_east.assign_coords(
+                    longitude=subset_east.longitude + 360
+                )
+                # Combine and ensure sorted monotonic order
+                subset = xr.concat([subset_west, subset_east], dim="longitude")
+                subset = subset.sortby("longitude")
             else:
                 lon_slice = slice(req_min, req_max)
+                subset = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=lon_slice
+                )
 
             # Subset the data
-            print("Subsetting data...")
-            subset = ds[short_var].sel(
-                time=slice(start_date, end_date),
-                latitude=lat_slice,
-                longitude=lon_slice
-            )
+            
+            # Check for empty result (e.g., future dates with no data)
+            if 'time' in subset.dims and subset.sizes['time'] == 0:
+                return (
+                    f"Error: No data found for the specified time range ({start_date} to {end_date}).\n"
+                    f"ERA5 reanalysis data has a ~5-day lag. Check that your dates are in the past."
+                )
 
             # Convert to dataset
             print("Preparing data for download...")

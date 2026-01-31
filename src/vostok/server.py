@@ -61,8 +61,40 @@ from vostok.config import (
 from vostok.memory import get_memory
 from vostok.retrieval import retrieve_era5_data
 
+# Import Climate Science tools for full scientific capability
+from vostok.tools.climate_science import (
+    # Functions
+    calculate_climate_diagnostics,
+    perform_eof_analysis,
+    detect_compound_extremes,
+    calculate_trends,
+    calculate_correlation,
+    detect_percentile_extremes,
+    fetch_climate_index,
+    calculate_return_periods,
+    # Nature-tier additions
+    detrend_climate_data,
+    perform_composite_analysis,
+    analyze_granger_causality,
+    # Argument schemas for MCP
+    DiagnosticsArgs,
+    EOFArgs,
+    CompoundExtremeArgs,
+    TrendArgs,
+    CorrelationArgs,
+    PercentileArgs,
+    IndexArgs,
+    ReturnPeriodArgs,
+    DetrendArgs,
+    CompositeArgs,
+    GrangerArgs,
+)
+
 # Create MCP server
 server = Server("era5-climate-data")
+
+# Alias for compatibility
+app = server
 
 
 # ============================================================================
@@ -80,6 +112,9 @@ async def list_tools() -> list[Tool]:
                 "QUERY TYPES:\n"
                 "- 'temporal': For time series (long time periods, small geographic area)\n"
                 "- 'spatial': For spatial maps (large geographic area, short time periods)\n\n"
+                "CLIMATOLOGY & RISK ASSESSMENT:\n"
+                "- For risk assessment or climatological studies, retrieve at least 20-30 years of data.\n"
+                "- Use 'temporal' with focused geographic bounds to manage size for long periods.\n\n"
                 "VARIABLES:\n"
                 "- sst: Sea Surface Temperature (K)\n"
                 "- t2: 2m Air Temperature (K)\n"
@@ -102,7 +137,7 @@ async def list_tools() -> list[Tool]:
                     },
                     "variable_id": {
                         "type": "string",
-                        "description": "ERA5 variable (sst, t2, u10, v10, mslp, tcc, tp, sp, cp, lsp)"
+                        "description": "ERA5 variable (sst, skt, stl1, swvl1, t2, d2, u10, v10, u100, v100, sp, mslp, blh, tcc, tcw, tcwv, cp, lsp, tp, ssr, ssrd, cape, sd)"
                     },
                     "start_date": {
                         "type": "string",
@@ -130,17 +165,13 @@ async def list_tools() -> list[Tool]:
                     },
                     "min_longitude": {
                         "type": "number",
-                        "minimum": 0,
-                        "maximum": 360,
                         "default": 0.0,
-                        "description": "Western bound (0 to 360)"
+                        "description": "Western bound (0 to 360, negative allowed)"
                     },
                     "max_longitude": {
                         "type": "number",
-                        "minimum": 0,
-                        "maximum": 360,
                         "default": 359.75,
-                        "description": "Eastern bound (0 to 360)"
+                        "description": "Eastern bound (0 to 360, negative allowed)"
                     },
                     "region": {
                         "type": "string",
@@ -186,6 +217,107 @@ async def list_tools() -> list[Tool]:
                 "additionalProperties": False
             }
         ),
+        # ========== CLIMATE SCIENCE TOOLS ==========
+        Tool(
+            name="compute_climate_diagnostics",
+            description=(
+                "Calculate anomalies and Z-scores from raw ERA5 data. "
+                "ESSENTIAL first step for any scientific analysis. "
+                "Z-scores enable detection of statistically significant extremes (Z > 2σ)."
+            ),
+            inputSchema=DiagnosticsArgs.model_json_schema()
+        ),
+        Tool(
+            name="analyze_climate_modes_eof",
+            description=(
+                "Perform EOF/PCA analysis to discover dominant spatial patterns. "
+                "Reveals climate modes like El Niño, marine heatwave patterns, blocking. "
+                "Returns spatial patterns and principal component time series."
+            ),
+            inputSchema=EOFArgs.model_json_schema()
+        ),
+        Tool(
+            name="detect_compound_extremes",
+            description=(
+                "Detect 'Ocean Ovens' - compound events where hot SST coincides with stagnant winds. "
+                "These compound extremes cause severe marine ecosystem stress. "
+                "REQUIRES Z-score data from compute_climate_diagnostics."
+            ),
+            inputSchema=CompoundExtremeArgs.model_json_schema()
+        ),
+        Tool(
+            name="calculate_climate_trends",
+            description=(
+                "Calculate linear trends with statistical significance testing. "
+                "Essential for climate change attribution and long-term analysis. "
+                "Returns trend maps with p-values and significance masking."
+            ),
+            inputSchema=TrendArgs.model_json_schema()
+        ),
+        Tool(
+            name="calculate_correlation",
+            description=(
+                "Calculate temporal correlation between two climate variables or indices. "
+                "Useful for teleconnection analysis and ocean-atmosphere coupling. "
+                "Supports lag analysis for lead-lag relationships."
+            ),
+            inputSchema=CorrelationArgs.model_json_schema()
+        ),
+        Tool(
+            name="detect_percentile_extremes",
+            description=(
+                "Detect extreme events using percentile thresholds (e.g., 90th, 95th). "
+                "Good for marine heatwave and cold spell identification. "
+                "Alternative to Z-score method for extreme detection."
+            ),
+            inputSchema=PercentileArgs.model_json_schema()
+        ),
+        Tool(
+            name="fetch_climate_index",
+            description=(
+                "Fetch standard climate indices (Nino3.4, NAO, PDO, AMO, SOI) from NOAA. "
+                "ESSENTIAL for attribution - correlate local events with large-scale modes. "
+                "Returns monthly time series for correlation analysis."
+            ),
+            inputSchema=IndexArgs.model_json_schema()
+        ),
+        Tool(
+            name="calculate_return_periods",
+            description=(
+                "Fit GEV distribution to calculate Return Periods (e.g., '1-in-100 year event'). "
+                "CRITICAL for Nature papers - quantifies rarity beyond Z-scores. "
+                "Uses Extreme Value Theory. Requires 20+ years of data."
+            ),
+            inputSchema=ReturnPeriodArgs.model_json_schema()
+        ),
+        # ========== NATURE-TIER TOOLS (Reviewer #2 Defense) ==========
+        Tool(
+            name="detrend_climate_data",
+            description=(
+                "Remove global warming trend to isolate internal climate modes. "
+                "MANDATORY before correlation analysis on multi-decadal data. "
+                "Reviewer #2 will reject papers that skip this step."
+            ),
+            inputSchema=DetrendArgs.model_json_schema()
+        ),
+        Tool(
+            name="perform_composite_analysis",
+            description=(
+                "Create composite maps showing average atmospheric state during events. "
+                "Use to discover MECHANISMS - e.g., 'What does pressure look like during heatwaves?' "
+                "Essential for explaining WHY extremes occur."
+            ),
+            inputSchema=CompositeArgs.model_json_schema()
+        ),
+        Tool(
+            name="analyze_granger_causality",
+            description=(
+                "Perform Granger Causality test to prove X drives Y (not just correlated). "
+                "Answers: Does NAO CAUSE SST anomalies, or is it the other way around? "
+                "Critical for Nature papers - moves from correlation to causation."
+            ),
+            inputSchema=GrangerArgs.model_json_schema()
+        ),
     ]
 
 
@@ -227,6 +359,127 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
         elif name == "list_regions":
             result = list_regions()
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        # ========== CLIMATE SCIENCE TOOL HANDLERS ==========
+        elif name == "compute_climate_diagnostics":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: calculate_climate_diagnostics(
+                    dataset_path=arguments["dataset_path"],
+                    baseline_start=arguments.get("baseline_start", "1991"),
+                    baseline_end=arguments.get("baseline_end", "2020")
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "analyze_climate_modes_eof":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: perform_eof_analysis(
+                    dataset_path=arguments["dataset_path"],
+                    n_modes=arguments.get("n_modes", 3)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "detect_compound_extremes":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: detect_compound_extremes(
+                    sst_path=arguments["sst_path"],
+                    wind_path=arguments["wind_path"],
+                    heat_threshold=arguments.get("heat_threshold", 1.5),
+                    stagnation_threshold=arguments.get("stagnation_threshold", -1.0)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "calculate_climate_trends":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: calculate_trends(
+                    dataset_path=arguments["dataset_path"],
+                    confidence_level=arguments.get("confidence_level", 0.95)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "calculate_correlation":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: calculate_correlation(
+                    dataset_path_1=arguments["dataset_path_1"],
+                    dataset_path_2=arguments["dataset_path_2"],
+                    lag_hours=arguments.get("lag_hours", 0)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "detect_percentile_extremes":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: detect_percentile_extremes(
+                    dataset_path=arguments["dataset_path"],
+                    percentile=arguments.get("percentile", 95.0),
+                    extreme_type=arguments.get("extreme_type", "above")
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "fetch_climate_index":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: fetch_climate_index(
+                    index_name=arguments["index_name"],
+                    start_date=arguments["start_date"],
+                    end_date=arguments["end_date"]
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "calculate_return_periods":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: calculate_return_periods(
+                    dataset_path=arguments["dataset_path"],
+                    block_size=arguments.get("block_size", "year"),
+                    fit_type=arguments.get("fit_type", "maxima")
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        # ========== NATURE-TIER TOOL HANDLERS ==========
+        elif name == "detrend_climate_data":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: detrend_climate_data(
+                    dataset_path=arguments["dataset_path"],
+                    method=arguments.get("method", "linear")
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "perform_composite_analysis":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: perform_composite_analysis(
+                    target_path=arguments["target_path"],
+                    index_path=arguments["index_path"],
+                    threshold=arguments.get("threshold", 1.0)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "analyze_granger_causality":
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: analyze_granger_causality(
+                    dataset_x=arguments["dataset_x"],
+                    dataset_y=arguments["dataset_y"],
+                    max_lag=arguments.get("max_lag", 5)
+                )
+            )
             return CallToolResult(content=[TextContent(type="text", text=result)])
 
         else:

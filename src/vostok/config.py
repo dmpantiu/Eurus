@@ -11,11 +11,12 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, Optional, List
+from datetime import datetime
 
-# ============================================================================
+# =============================================================================
 # PATHS
-# ============================================================================
+# =============================================================================
 
 def get_data_dir() -> Path:
     """Get the data directory, creating it if necessary."""
@@ -38,9 +39,9 @@ def get_memory_dir() -> Path:
     return memory_dir
 
 
-# ============================================================================
+# =============================================================================
 # ERA5 VARIABLE CATALOG
-# ============================================================================
+# =============================================================================
 
 @dataclass(frozen=True)
 class ERA5Variable:
@@ -78,6 +79,26 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         category="ocean",
         typical_range=(270, 310),
         colormap="RdYlBu_r"
+    ),
+
+    # Wave Variables
+    "swh": ERA5Variable(
+        short_name="swh",
+        long_name="Significant Height of Combined Wind Waves and Swell",
+        units="m",
+        description="Average height of the highest third of the waves",
+        category="ocean",
+        typical_range=(0, 15),
+        colormap="Blues"
+    ),
+    "significant_wave_height": ERA5Variable(
+        short_name="swh",
+        long_name="Significant Height of Combined Wind Waves and Swell",
+        units="m",
+        description="Average height of the highest third of the waves",
+        category="ocean",
+        typical_range=(0, 15),
+        colormap="Blues"
     ),
 
     # Temperature Variables
@@ -189,7 +210,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
     "tcc": ERA5Variable(
         short_name="tcc",
         long_name="Total Cloud Cover",
-        units="0-1",
+        units="fraction (0-1)",
         description="Fraction of sky covered by clouds",
         category="atmosphere",
         typical_range=(0, 1),
@@ -198,7 +219,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
     "total_cloud_cover": ERA5Variable(
         short_name="tcc",
         long_name="Total Cloud Cover",
-        units="0-1",
+        units="fraction (0-1)",
         description="Fraction of sky covered by clouds",
         category="atmosphere",
         typical_range=(0, 1),
@@ -276,9 +297,9 @@ def get_all_short_names() -> list[str]:
     return list({v.short_name for v in ERA5_VARIABLES.values()})
 
 
-# ============================================================================
-# GEOGRAPHIC REGIONS
-# ============================================================================
+# =============================================================================
+# GEOGRAPHIC REGIONS (Common oceanographic areas)
+# =============================================================================
 
 @dataclass(frozen=True)
 class GeographicRegion:
@@ -401,38 +422,210 @@ def list_regions() -> str:
     return "\n".join(lines)
 
 
-# ============================================================================
-# RUNTIME CONFIGURATION
-# ============================================================================
+# =============================================================================
+# AGENT CONFIGURATION
+# =============================================================================
 
 @dataclass
-class Config:
-    """Runtime configuration for ERA5 MCP."""
+class AgentConfig:
+    """Configuration for the ERA5 Agent."""
 
-    # Data source
+    # LLM Settings
+    model_name: str = "gpt-4o"
+    temperature: float = 0
+    max_tokens: int = 4096
+
+    # Data Settings
     data_source: str = "earthmover-public/era5-surface-aws"
+    default_query_type: str = "temporal"
+    max_download_size_gb: float = 2.0
 
-    # Retry settings
+    # Retrieval Settings
     max_retries: int = 3
     retry_delay: float = 2.0
 
-    # Timeouts
-    download_timeout: float = 300.0
-
-    # Memory settings
+    # Memory Settings
+    enable_memory: bool = True
     max_conversation_history: int = 100
+    memory_file: str = "conversation_history.json"
 
-    @classmethod
-    def from_env(cls) -> "Config":
-        """Create config from environment variables."""
-        return cls(
-            data_source=os.environ.get("ERA5_DATA_SOURCE", cls.data_source),
-            max_retries=int(os.environ.get("ERA5_MAX_RETRIES", cls.max_retries)),
-            retry_delay=float(os.environ.get("ERA5_RETRY_DELAY", cls.retry_delay)),
-            download_timeout=float(os.environ.get("ERA5_DOWNLOAD_TIMEOUT", cls.download_timeout)),
-            max_conversation_history=int(os.environ.get("ERA5_MAX_HISTORY", cls.max_conversation_history)),
-        )
+    # Visualization Settings
+    default_figure_size: tuple = (12, 8)
+    default_dpi: int = 150
+    save_plots: bool = True
+    plot_format: str = "png"
+
+    # Kernel Settings
+    kernel_timeout: float = 300.0
+    auto_import_packages: List[str] = field(default_factory=lambda: [
+        "os", "sys", "pandas", "numpy", "xarray",
+        "matplotlib", "matplotlib.pyplot", "datetime"
+    ])
+
+    # Logging
+    log_level: str = "INFO"
+    log_to_file: bool = True
+    log_file: str = "era5_agent.log"
 
 
 # Global config instance
-CONFIG = Config.from_env()
+CONFIG = AgentConfig()
+
+# Convenience path variables (for backward compatibility)
+DATA_DIR = get_data_dir()
+PLOTS_DIR = get_plots_dir()
+
+
+# =============================================================================
+# SYSTEM PROMPTS
+# =============================================================================
+
+AGENT_SYSTEM_PROMPT = """You are Vostok, an AI Climate Physicist conducting research for high-impact scientific publications.
+
+## SCIENTIFIC PHILOSOPHY
+
+You do NOT merely retrieve data - you perform **attribution**, discover **mechanisms**, and detect **compound extremes**.
+Journals do not publish "data retrieval"; they publish insights about WHY climate behaves the way it does.
+
+## YOUR CAPABILITIES
+
+### 1. DATA RETRIEVAL: `retrieve_era5_data`
+Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
+
+**Query Types:**
+- `temporal`: For TIME SERIES analysis (long time periods, focused geographic area)
+- `spatial`: For SPATIAL MAPS (large geographic areas, short time periods)
+
+**CRITICAL OPTIMIZATION RULE:**
+- **Use `temporal`** IF: `(hours > 24) AND (region < 30°x30°)`
+- **Use `spatial`**  IF: `(hours <= 24) OR (region > 30°x30°)`
+
+**Available Variables:**
+| Variable | Description | Units |
+|----------|-------------|-------|
+| sst | Sea Surface Temperature | K |
+| t2 | 2m Air Temperature | K |
+| u10 | 10m U-Wind (Eastward) | m/s |
+| v10 | 10m V-Wind (Northward) | m/s |
+| mslp | Mean Sea Level Pressure | Pa |
+| tcc | Total Cloud Cover | 0-1 |
+| tp | Total Precipitation | m |
+
+**Common Regions:** global, north_atlantic, north_pacific, california_coast,
+mediterranean, gulf_of_mexico, nino34 (El Nino), arctic, antarctic
+
+### 2. CLIMATE SCIENCE TOOLS (The "Physics Brain")
+
+#### `compute_climate_diagnostics` - ALWAYS RUN FIRST
+Transforms raw data into scientific insights:
+- **Anomalies**: Departure from climatological mean (1991-2020 baseline)
+- **Z-Scores**: Standardized anomalies in units of standard deviation
+- Events with Z > 2σ are statistically significant extremes
+
+#### `analyze_climate_modes_eof`
+Performs EOF/PCA analysis to discover dominant spatial patterns:
+- Reveals climate modes (El Niño, marine heatwave patterns, blocking)
+- Discovers patterns WITHOUT human bias
+- Mode 1 = dominant driver of variability
+
+#### `detect_compound_extremes`
+Identifies "Ocean Ovens" - compound events where:
+- Sea surface is anomalously HOT (Z > 1.5σ)
+- Winds are anomalously WEAK (Z < -1σ)
+- Mechanism: Stagnation prevents mixing, trapping heat
+
+#### `calculate_climate_trends`
+Linear trend analysis with statistical significance:
+- Returns trend per decade with p-values
+- Use stippling to show significant regions (p < 0.05)
+
+#### `calculate_correlation`
+Temporal correlation between variables:
+- Teleconnection analysis (e.g., ENSO impacts)
+- Lead-lag relationships with lag parameter
+
+#### `detect_percentile_extremes`
+Extreme event detection using percentile thresholds:
+- Marine heatwaves: SST > 90th percentile
+- Alternative to Z-score method
+
+### 3. ANALYSIS: `python_repl`
+Persistent Python kernel for custom analysis and visualization.
+**Pre-loaded:** pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
+
+### 4. MEMORY
+Remembers conversation history and previous analyses.
+
+## SCIENTIFIC PROTOCOL
+
+1. **ANOMALY FIRST**: Never report raw temperatures (25°C). Always report:
+   - Anomalies: "2.5°C above normal"
+   - Z-Scores: "+2.5σ (statistically significant)"
+   - Run `compute_climate_diagnostics` immediately after downloading data
+
+2. **MECHANISM**: Don't just say "it was hot." Explain WHY:
+   - Use `analyze_climate_modes_eof` to find if the event is part of a larger pattern
+   - Consider atmospheric blocking, ENSO teleconnections, etc.
+
+3. **COMPOUND EVENTS**: Look for dangerous combinations:
+   - High heat + Low wind = "Ocean Oven"
+   - These compound events cause ecosystem collapse
+
+4. **STATISTICAL RIGOR**: Always test significance:
+   - Use Z > 2σ for "extreme"
+   - Use p < 0.05 for trends
+   - Report confidence intervals when possible
+
+## VISUALIZATION STANDARDS
+
+- **Anomaly Maps**: Use diverging colormap (`RdBu_r`) centered at 0
+- **Stippling**: Mark significant regions where p < 0.05
+- **Hovmöller Diagrams**: Show propagation of anomalies over time/longitude
+- **ALWAYS** save figures to `./data/plots/`
+
+```python
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(12, 8))
+# Diverging colormap for anomalies
+im = ax.pcolormesh(lon, lat, anomaly, cmap='RdBu_r', vmin=-3, vmax=3)
+plt.colorbar(im, label='SST Anomaly (σ)')
+plt.savefig('./data/plots/anomaly_map.png', dpi=150, bbox_inches='tight')
+plt.close()
+```
+
+## WORKFLOW FOR PUBLICATION-GRADE ANALYSIS
+
+1. **RETRIEVE** data with appropriate query_type
+2. **DIAGNOSE** with `compute_climate_diagnostics` to get Z-scores
+3. **DISCOVER** patterns with `analyze_climate_modes_eof`
+4. **DETECT** compound extremes or percentile-based events
+5. **ATTRIBUTE** using correlation and trend analysis
+6. **VISUALIZE** with proper scientific standards
+7. **SYNTHESIZE** findings into mechanistic explanations
+
+## RESPONSE STYLE
+- Be precise and scientific
+- Report in anomalies/Z-scores, not raw values
+- Include statistical significance
+- Reference specific dates/locations
+- Explain the physical mechanism
+- Acknowledge limitations and uncertainty
+"""
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+def format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 1024:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.2f} PB"
+
+
+def get_timestamp() -> str:
+    """Get current timestamp string."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")

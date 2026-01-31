@@ -67,6 +67,32 @@ class Message:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Message":
+        # Filter to only known fields to handle legacy data with extra fields
+        valid_keys = {'role', 'content', 'timestamp'}
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered)
+
+    def to_langchain(self) -> dict:
+        """Convert to LangChain message format."""
+        return {"role": self.role, "content": self.content}
+
+
+@dataclass
+class AnalysisRecord:
+    """Record of an analysis performed."""
+
+    description: str
+    code: str
+    output: str
+    timestamp: str
+    datasets_used: List[str] = field(default_factory=list)
+    plots_generated: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AnalysisRecord":
         return cls(**data)
 
 
@@ -91,17 +117,19 @@ class MemoryManager:
         # File paths
         self.datasets_file = self.memory_dir / "datasets.json"
         self.conversations_file = self.memory_dir / "conversations.json"
+        self.analyses_file = self.memory_dir / "analyses.json"
 
         # In-memory storage
         self.datasets: Dict[str, DatasetRecord] = {}
         self.conversations: List[Message] = []
+        self.analyses: List[AnalysisRecord] = []
 
         # Load existing data
         self._load_all()
 
         logger.info(
             f"MemoryManager initialized: {len(self.conversations)} messages, "
-            f"{len(self.datasets)} datasets"
+            f"{len(self.datasets)} datasets, {len(self.analyses)} analyses"
         )
 
     # ========================================================================
@@ -112,6 +140,7 @@ class MemoryManager:
         """Load all memory from disk."""
         self._load_datasets()
         self._load_conversations()
+        self._load_analyses()
 
     def _load_datasets(self) -> None:
         """Load dataset registry from disk."""
@@ -152,6 +181,24 @@ class MemoryManager:
                 json.dump([m.to_dict() for m in self.conversations], f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save conversations: {e}")
+
+    def _load_analyses(self) -> None:
+        """Load analysis history from disk."""
+        if self.analyses_file.exists():
+            try:
+                with open(self.analyses_file, "r") as f:
+                    data = json.load(f)
+                    self.analyses = [AnalysisRecord.from_dict(r) for r in data]
+            except Exception as e:
+                logger.warning(f"Failed to load analyses: {e}")
+
+    def _save_analyses(self) -> None:
+        """Save analysis history to disk."""
+        try:
+            with open(self.analyses_file, "w") as f:
+                json.dump([a.to_dict() for a in self.analyses[-50:]], f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save analyses: {e}")
 
     # ========================================================================
     # DATASET MANAGEMENT
@@ -247,6 +294,73 @@ class MemoryManager:
         self.conversations.clear()
         self._save_conversations()
         logger.info("Conversation history cleared")
+
+    def get_langchain_messages(self, n_messages: Optional[int] = None) -> List[dict]:
+        """Get messages in LangChain format."""
+        messages = self.get_conversation_history(n_messages)
+        return [m.to_langchain() for m in messages]
+
+    # ========================================================================
+    # ANALYSIS TRACKING
+    # ========================================================================
+
+    def record_analysis(
+        self,
+        description: str,
+        code: str,
+        output: str,
+        datasets_used: Optional[List[str]] = None,
+        plots_generated: Optional[List[str]] = None,
+    ) -> AnalysisRecord:
+        """Record an analysis for history."""
+        from datetime import datetime
+
+        record = AnalysisRecord(
+            description=description,
+            code=code,
+            output=output[:2000],  # Truncate long output
+            timestamp=datetime.now().isoformat(),
+            datasets_used=datasets_used or [],
+            plots_generated=plots_generated or [],
+        )
+        self.analyses.append(record)
+        self._save_analyses()
+        return record
+
+    def get_recent_analyses(self, n: int = 10) -> List[AnalysisRecord]:
+        """Get recent analyses."""
+        return self.analyses[-n:]
+
+    # ========================================================================
+    # CONTEXT SUMMARY
+    # ========================================================================
+
+    def get_context_summary(self) -> str:
+        """Get a summary of current context for the agent."""
+        lines = []
+
+        # Recent conversation summary
+        recent = self.get_conversation_history(5)
+        if recent:
+            lines.append("Recent Conversation:")
+            for msg in recent[-3:]:
+                content_preview = msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
+                lines.append(f"  [{msg.role}]: {content_preview}")
+
+        # Available datasets
+        valid_datasets = {p: r for p, r in self.datasets.items() if os.path.exists(p)}
+        if valid_datasets:
+            lines.append(f"\nCached Datasets ({len(valid_datasets)}):")
+            for path, record in list(valid_datasets.items())[:5]:
+                lines.append(f"  - {record.variable}: {record.start_date} to {record.end_date}")
+
+        # Recent analyses
+        if self.analyses:
+            lines.append(f"\nRecent Analyses ({len(self.analyses)} total):")
+            for analysis in self.analyses[-2:]:
+                lines.append(f"  - {analysis.description[:60]}...")
+
+        return "\n".join(lines) if lines else "No context available."
 
     # ========================================================================
     # UTILITIES

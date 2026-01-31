@@ -43,12 +43,12 @@ from mcp.types import (
     CallToolResult,
 )
 
-from config import (
+from vostok.config import (
     DATA_DIR, PLOTS_DIR,
     get_variable_info, get_short_name, list_available_variables,
     GEOGRAPHIC_REGIONS
 )
-from memory import get_memory
+from vostok.memory import get_memory
 
 # Configure logging
 logging.basicConfig(
@@ -101,10 +101,10 @@ def retrieve_era5_data_sync(
     # Apply region bounds if specified
     if region and region.lower() in GEOGRAPHIC_REGIONS:
         r = GEOGRAPHIC_REGIONS[region.lower()]
-        min_latitude = r["min_lat"]
-        max_latitude = r["max_lat"]
-        min_longitude = r["min_lon"]
-        max_longitude = r["max_lon"]
+        min_latitude = r.min_lat
+        max_latitude = r.max_lat
+        min_longitude = r.min_lon
+        max_longitude = r.max_lon
         logger.info(f"Using region '{region}'")
 
     # Resolve variable name
@@ -375,8 +375,8 @@ async def call_tool(name: str, arguments: dict) -> CallToolResult:
         lines = ["Available Geographic Regions:", "=" * 50]
         for region, bounds in GEOGRAPHIC_REGIONS.items():
             lines.append(
-                f"  {region:20} | lat: [{bounds['min_lat']:6.1f}, {bounds['max_lat']:6.1f}] "
-                f"| lon: [{bounds['min_lon']:6.1f}, {bounds['max_lon']:6.1f}]"
+                f"  {region:20} | lat: [{bounds.min_lat:6.1f}, {bounds.max_lat:6.1f}] "
+                f"| lon: [{bounds.min_lon:6.1f}, {bounds.max_lon:6.1f}]"
             )
         result = "\n".join(lines)
         return CallToolResult(content=[TextContent(type="text", text=result)])

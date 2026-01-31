@@ -119,6 +119,14 @@ def retrieve_era5_data(
     short_var = get_short_name(variable_id)
     var_info = get_variable_info(variable_id)
 
+    # Check for future dates
+    req_start = datetime.strptime(start_date, '%Y-%m-%d')
+    if req_start > datetime.now():
+        return (
+            f"Error: Requested start date ({start_date}) is in the future.\n"
+            f"ERA5 is a historical dataset. Please request past dates."
+        )
+
     # Setup paths
     output_dir = get_data_dir()
     filename = generate_filename(short_var, query_type, start_date, end_date)
@@ -215,6 +223,17 @@ def retrieve_era5_data(
 
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
+
+            # Check for empty data (all NaNs)
+            # We use .compute() to ensure we actually check the values if they are lazy
+            if ds_out[short_var].isnull().all().compute():
+                 return (
+                    f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
+                    f"Possible causes:\n"
+                    f"1. The requested date/region has no data (e.g., SST over land).\n"
+                    f"2. The request is too recent (ERA5T has a 5-day delay).\n"
+                    f"3. Region bounds might be invalid or cross the prime meridian incorrectly."
+                )
 
             # Clear encoding for clean serialization
             for var in ds_out.variables:

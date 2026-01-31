@@ -1,12 +1,15 @@
 """
-ERA5 MCP - ERA5 Climate Data via Model Context Protocol
-========================================================
+Vostok - ERA5 Climate Analysis Agent
+====================================
 
-A production-ready MCP server for accessing ERA5 reanalysis data from
-Earthmover's cloud-optimized archive.
+A scientific climate analysis platform powered by ERA5 reanalysis data from
+Earthmover's cloud-optimized archive via Icechunk.
 
 Features:
 - ERA5 reanalysis data retrieval (SST, temperature, wind, pressure, etc.)
+- Climate Science Intelligence: anomalies, Z-scores, EOF patterns
+- Compound extreme detection ("Ocean Ovens")
+- Trend analysis with statistical significance
 - Intelligent caching with persistent memory
 - Predefined geographic regions (El Niño, Atlantic, Pacific, etc.)
 - Full MCP protocol support for Claude and other AI assistants
@@ -24,6 +27,7 @@ Example usage as MCP server:
 
 Example usage as Python library:
     from vostok import retrieve_era5_data, list_available_variables
+    from vostok.tools import get_all_tools, get_science_tools
 
     # Download SST data
     result = retrieve_era5_data(
@@ -33,20 +37,25 @@ Example usage as Python library:
         end_date="2024-01-07",
         region="california_coast"
     )
+
+    # Get all tools for agent
+    tools = get_all_tools(enable_science=True)
 """
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
 __author__ = "Vostok Team"
 
 from vostok.config import (
     ERA5_VARIABLES,
     GEOGRAPHIC_REGIONS,
+    AGENT_SYSTEM_PROMPT,
     get_variable_info,
     get_short_name,
     list_available_variables,
 )
 from vostok.retrieval import retrieve_era5_data
 from vostok.memory import MemoryManager, get_memory
+from vostok.tools import get_all_tools, get_science_tools
 
 __all__ = [
     # Version
@@ -54,6 +63,7 @@ __all__ = [
     # Config
     "ERA5_VARIABLES",
     "GEOGRAPHIC_REGIONS",
+    "AGENT_SYSTEM_PROMPT",
     "get_variable_info",
     "get_short_name",
     "list_available_variables",
@@ -62,4 +72,7 @@ __all__ = [
     # Memory
     "MemoryManager",
     "get_memory",
+    # Tools
+    "get_all_tools",
+    "get_science_tools",
 ]

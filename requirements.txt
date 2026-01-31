@@ -19,6 +19,9 @@ zarr>=3.0.0
 pandas>=2.0.0
 numpy>=1.24.0
 scipy>=1.10.0
+scikit-learn>=1.3.0  # For EOF/PCA climate pattern analysis
+statsmodels>=0.14.0  # For Granger Causality & trend analysis
+bottleneck>=1.3.0    # Fast rolling windows for time series
 
 # Visualization
 matplotlib>=3.7.0
@@ -35,3 +38,7 @@ ipykernel>=6.0.0
 
 # MCP Server
 mcp>=1.0.0
+
+# Maritime Routing (Optional Extended Features)
+scgraph>=1.0.0
+global-land-mask>=1.0.0

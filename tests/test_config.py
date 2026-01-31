@@ -27,15 +27,7 @@ def test_get_short_name():
 
 def test_agent_prompt_branding():
     """Test that the system prompt contains the Vostok branding."""
-    # We need to import CONFIG from the root config, but since we are in tests/
-    # and the root config is in ..., this might be tricky with import paths.
-    # Let's try importing from the installed package location or adjust path.
-    
-    import sys
-    import os
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-    
-    from config import AGENT_SYSTEM_PROMPT
+    from vostok.config import AGENT_SYSTEM_PROMPT
     assert "Vostok" in AGENT_SYSTEM_PROMPT
     assert "Comrade Copernicus" not in AGENT_SYSTEM_PROMPT
     assert "PANGAEA" not in AGENT_SYSTEM_PROMPT

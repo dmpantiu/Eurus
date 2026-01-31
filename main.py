@@ -18,6 +18,8 @@ Commands:
     /clear         - Clear conversation history
     /cache         - List cached datasets
     /memory        - Show memory summary
+    /cleancache    - Clear Python __pycache__ directories
+    /cleardata     - Clear all downloaded ERA5 datasets
     /help          - Show help message
 """
 
@@ -44,10 +46,9 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-from config import CONFIG, AGENT_SYSTEM_PROMPT, DATA_DIR, PLOTS_DIR
-from memory import get_memory, MemoryManager
-from era5_tool import era5_tool, list_cached_data
-from repl_tool import SuperbPythonREPLTool
+from vostok.config import CONFIG, AGENT_SYSTEM_PROMPT, DATA_DIR, PLOTS_DIR
+from vostok.memory import get_memory, MemoryManager
+from vostok.tools import get_all_tools
 
 
 # ============================================================================
@@ -64,14 +65,16 @@ BANNER = """
 ║     ╚████╔╝ ╚██████╔╝███████║   ██║   ╚██████╔╝██║  ██╗                   ║
 ║      ╚═══╝   ╚═════╝ ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝                   ║
 ║                                                                           ║
-║                      Vostok Climate Agent v2.0                            ║
-║                 ─────────────────────────────────────                     ║
+║                  AI Climate Physicist v2.0                                ║
+║           ─────────────────────────────────────────                       ║
 ║                                                                           ║
-║   Capabilities:                                                           ║
+║   Scientific Capabilities:                                                ║
 ║   • ERA5 reanalysis data retrieval (SST, wind, temperature, pressure)     ║
-║   • Interactive Python analysis with persistent state                     ║
-║   • Automatic visualization with plot saving                              ║
-║   • Conversation memory across sessions                                   ║
+║   • Climate Diagnostics: Anomalies, Z-Scores, Statistical Significance    ║
+║   • Pattern Discovery: EOF/PCA analysis for climate modes                 ║
+║   • Compound Extremes: "Ocean Oven" detection (Heat + Stagnation)         ║
+║   • Trend Analysis: Decadal trends with p-value significance              ║
+║   • Teleconnections: Correlation and lead-lag analysis                    ║
 ║                                                                           ║
 ║   Commands: /help, /clear, /cache, /memory, /quit                         ║
 ║                                                                           ║
@@ -80,25 +83,37 @@ BANNER = """
 
 HELP_TEXT = """
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║                               VOSTOK HELP                                 ║
+║                          VOSTOK HELP - AI Climate Physicist               ║
 ╠═══════════════════════════════════════════════════════════════════════════╣
 ║                                                                           ║
 ║  COMMANDS:                                                                ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
-║    /help     - Show this help message                                     ║
-║    /clear    - Clear conversation history (fresh start)                   ║
-║    /cache    - List all cached ERA5 datasets                              ║
-║    /memory   - Show memory summary (datasets, analyses)                   ║
-║    /quit     - Exit the agent (also: q, quit, exit)                       ║
+║    /help       - Show this help message                                   ║
+║    /clear      - Clear conversation history (fresh start)                 ║
+║    /cache      - List all cached ERA5 datasets                            ║
+║    /memory     - Show memory summary (datasets, analyses)                 ║
+║    /cleancache - Clear Python __pycache__ directories                     ║
+║    /cleardata  - Clear all downloaded ERA5 datasets                       ║
+║    /quit       - Exit the agent (also: q, quit, exit)                     ║
 ║                                                                           ║
-║  EXAMPLE QUERIES:                                                         ║
+║  SCIENTIFIC ANALYSIS (Publication-Grade):                                 ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
-║    "Show me the sea surface temperature off California for 2023"          ║
-║    "What's the wind pattern in the Gulf of Mexico this January?"          ║
-║    "Plot a time series of temperature anomalies in the North Atlantic"    ║
-║    "Compare SST between El Nino region and the California coast"          ║
-║    "What datasets do I have cached?"                                      ║
-║    "Analyze the data I just downloaded"                                   ║
+║    "Analyze marine heatwaves in the North Atlantic summer 2023"           ║
+║    "Find compound extremes where high SST coincides with low wind"        ║
+║    "Perform EOF analysis on SST anomalies to find climate modes"          ║
+║    "Calculate SST trends with statistical significance"                   ║
+║    "Detect Ocean Ovens in the Mediterranean"                              ║
+║                                                                           ║
+║  SCIENCE TOOLS (The "Physics Brain"):                                     ║
+║  ─────────────────────────────────────────────────────────────────────   ║
+║    compute_climate_diagnostics  - Z-scores & anomalies (RUN FIRST!)       ║
+║    analyze_climate_modes_eof    - Pattern discovery via EOF/PCA           ║
+║    detect_compound_extremes     - "Ocean Oven" detection                  ║
+║    calculate_climate_trends     - Trends with p-value significance        ║
+║    calculate_correlation        - Teleconnection analysis                 ║
+║    detect_percentile_extremes   - Percentile-based extreme detection      ║
+║    fetch_climate_index          - NOAA indices (Nino3.4, NAO, PDO, AMO)   ║
+║    calculate_return_periods     - GEV/EVT (1-in-100 year events)          ║
 ║                                                                           ║
 ║  AVAILABLE VARIABLES:                                                     ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
@@ -115,15 +130,94 @@ HELP_TEXT = """
 ║    north_atlantic, north_pacific, california_coast, mediterranean         ║
 ║    gulf_of_mexico, caribbean, nino34, nino3, nino4, arctic, antarctic     ║
 ║                                                                           ║
+║  SCIENTIFIC WORKFLOW:                                                     ║
+║  ─────────────────────────────────────────────────────────────────────   ║
+║    1. RETRIEVE data → 2. DIAGNOSE (Z-scores) → 3. DISCOVER (EOF)          ║
+║    4. DETECT (extremes) → 5. ATTRIBUTE (correlation) → 6. VISUALIZE       ║
+║                                                                           ║
 ║  TIPS:                                                                    ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
-║    • Plots are automatically saved to ./data/plots/                       ║
-║    • Variables persist between Python code executions                     ║
-║    • Use "recall" or "remember" to reference past conversations           ║
-║    • Cached data is reused automatically for matching queries             ║
+║    • Always report in anomalies/Z-scores, not raw values                  ║
+║    • Z > 2σ means statistically significant extreme                       ║
+║    • Use diverging colormaps (RdBu_r) centered at 0 for anomalies         ║
+║    • Add stippling for p < 0.05 significance                              ║
 ║                                                                           ║
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
+
+
+# ============================================================================
+# UTILITY FUNCTIONS
+# ============================================================================
+
+def clear_pycache(root_dir: Path = None) -> tuple[int, int]:
+    """
+    Remove all __pycache__ directories and .pyc/.pyo files.
+    
+    Args:
+        root_dir: Root directory to search. Defaults to project root.
+        
+    Returns:
+        Tuple of (directories_removed, files_removed)
+    """
+    import shutil
+    
+    if root_dir is None:
+        root_dir = Path(__file__).parent
+    
+    dirs_removed = 0
+    files_removed = 0
+    
+    # Find and remove __pycache__ directories
+    for cache_dir in root_dir.rglob('__pycache__'):
+        if cache_dir.is_dir():
+            shutil.rmtree(cache_dir)
+            dirs_removed += 1
+            logger.debug(f"Removed: {cache_dir}")
+    
+    # Also remove any stray .pyc/.pyo files
+    for pyc_file in root_dir.rglob('*.py[co]'):
+        if pyc_file.is_file():
+            pyc_file.unlink()
+            files_removed += 1
+            logger.debug(f"Removed: {pyc_file}")
+    
+    return dirs_removed, files_removed
+
+
+def clear_data_directory(data_dir: Path = None) -> tuple[int, float]:
+    """
+    Remove all downloaded ERA5 datasets (zarr directories) from the data folder.
+    
+    Args:
+        data_dir: Data directory path. Defaults to DATA_DIR from config.
+        
+    Returns:
+        Tuple of (datasets_removed, total_size_mb_freed)
+    """
+    import shutil
+    
+    if data_dir is None:
+        data_dir = DATA_DIR
+    
+    datasets_removed = 0
+    total_bytes = 0
+    
+    if not data_dir.exists():
+        return 0, 0.0
+    
+    # Find and remove all .zarr directories
+    for zarr_dir in data_dir.glob('*.zarr'):
+        if zarr_dir.is_dir():
+            # Calculate size before removing
+            dir_size = sum(f.stat().st_size for f in zarr_dir.rglob('*') if f.is_file())
+            total_bytes += dir_size
+            shutil.rmtree(zarr_dir)
+            datasets_removed += 1
+            logger.debug(f"Removed dataset: {zarr_dir}")
+    
+    total_mb = total_bytes / (1024 * 1024)
+    return datasets_removed, total_mb
 
 
 # ============================================================================
@@ -150,7 +244,7 @@ def handle_command(command: str, memory: MemoryManager) -> tuple[bool, str]:
         return True, "Conversation history cleared. Starting fresh!"
 
     elif cmd == '/cache':
-        cache_info = list_cached_data()
+        cache_info = memory.list_datasets()
         return True, f"\n{cache_info}\n"
 
     elif cmd == '/memory':
@@ -169,6 +263,34 @@ def handle_command(command: str, memory: MemoryManager) -> tuple[bool, str]:
 ╚═══════════════════════════════════════════════════════════════════════════╝
 
 {summary}
+"""
+        return True, response
+
+    elif cmd == '/cleancache':
+        project_root = Path(__file__).parent
+        dirs_removed, files_removed = clear_pycache(project_root)
+        response = f"""
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                         CACHE CLEARED                                     ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║  __pycache__ directories removed: {dirs_removed:<5}                                  ║
+║  .pyc/.pyo files removed: {files_removed:<5}                                         ║
+╚═══════════════════════════════════════════════════════════════════════════╝
+"""
+        return True, response
+
+    elif cmd == '/cleardata':
+        datasets_removed, size_freed = clear_data_directory(DATA_DIR)
+        # Also clear memory references
+        memory.datasets.clear()
+        memory._save_datasets()
+        response = f"""
+╔═══════════════════════════════════════════════════════════════════════════╗
+║                       ERA5 DATA CLEARED                                   ║
+╠═══════════════════════════════════════════════════════════════════════════╣
+║  Datasets removed: {datasets_removed:<5}                                               ║
+║  Space freed: {size_freed:>8.2f} MB                                              ║
+╚═══════════════════════════════════════════════════════════════════════════╝
 """
         return True, response
 
@@ -211,14 +333,31 @@ def main():
 
     # Initialize tools
     print("Starting Python kernel...")
-    repl_tool = SuperbPythonREPLTool(working_dir=os.getcwd())
-    tools = [era5_tool, repl_tool]
+
+    # Ask for extended capabilities
+    print("\n" + "-" * 50)
+    enable_routing_input = input("Enable Maritime Routing & Risk tools? (Requires scgraph) [y/N]: ").strip().lower()
+    enable_routing = enable_routing_input in ('y', 'yes')
+
+    print("\nCapabilities enabled:")
+    print("  [✓] Data Retrieval (ERA5)")
+    print("  [✓] Python Analysis (REPL)")
+    print("  [✓] Climate Science Tools (Diagnostics, EOF, Compound Extremes, Trends)")
+    if enable_routing:
+        print("  [✓] Maritime Routing & Risk")
+    else:
+        print("  [ ] Maritime Routing & Risk (disabled)")
+    print("-" * 50 + "\n")
+
+    tools = get_all_tools(enable_routing=enable_routing, enable_science=True)
+    logger.info(f"Loaded {len(tools)} tools")
 
     # Initialize LLM
     print("Connecting to LLM...")
     llm = ChatOpenAI(
         model=CONFIG.model_name,
-        temperature=CONFIG.temperature
+        temperature=CONFIG.temperature,
+        streaming=True  # Enable streaming for real-time output
     )
 
     # Create enhanced system prompt with context
@@ -276,25 +415,64 @@ def main():
             print("\nThinking...\n")
 
             try:
-                result = agent.invoke({"messages": messages})
-                messages = result["messages"]
-
-                # Extract and display response
-                last_message = messages[-1]
-
-                if hasattr(last_message, 'content') and last_message.content:
-                    response_text = last_message.content
-                elif isinstance(last_message, dict) and last_message.get('content'):
-                    response_text = last_message['content']
-                else:
-                    response_text = str(last_message)
-
+                # Stream the response for real-time output
                 print("\n" + "─" * 75)
-                print("Vostok:", response_text)
+                
+                full_response = ""
+                tool_executed = False
+                
+                for event in agent.stream({"messages": messages}, stream_mode="updates"):
+                    # Handle different event types
+                    for node_name, node_output in event.items():
+                        if node_name == "agent":
+                            # LLM is producing output
+                            if "messages" in node_output:
+                                for msg in node_output["messages"]:
+                                    # Check for tool calls
+                                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                                        for tc in msg.tool_calls:
+                                            tool_name = tc.get('name', 'unknown')
+                                            print(f"🔧 Calling: {tool_name}...", flush=True)
+                                            tool_executed = True
+                                    # Check for final content
+                                    elif hasattr(msg, 'content') and msg.content:
+                                        if not tool_executed:
+                                            print("Vostok: ", end="", flush=True)
+                                        else:
+                                            print("\n\n📝 Response:", flush=True)
+                                        print(msg.content, flush=True)
+                                        full_response = msg.content
+                        
+                        elif node_name == "tools":
+                            # Tool execution completed
+                            if "messages" in node_output:
+                                for msg in node_output["messages"]:
+                                    if hasattr(msg, 'name'):
+                                        print(f"   ✓ {msg.name} done", flush=True)
+                
                 print("─" * 75 + "\n")
-
-                # Save response to memory
-                memory.add_message("assistant", response_text)
+                
+                # Update messages for the next turn
+                if full_response:
+                    messages.append({"role": "assistant", "content": full_response})
+                    memory.add_message("assistant", full_response)
+                else:
+                    # Fallback: use invoke if streaming didn't capture content
+                    print("(Processing...)", flush=True)
+                    result = agent.invoke({"messages": messages})
+                    messages = result["messages"]
+                    last_message = messages[-1]
+                    
+                    if hasattr(last_message, 'content') and last_message.content:
+                        response_text = last_message.content
+                    elif isinstance(last_message, dict) and last_message.get('content'):
+                        response_text = last_message['content']
+                    else:
+                        response_text = str(last_message)
+                    
+                    print(f"\nVostok: {response_text}")
+                    print("─" * 75 + "\n")
+                    memory.add_message("assistant", response_text)
 
             except KeyboardInterrupt:
                 print("\n\nInterrupted. Type /quit to exit or continue with a new question.")
@@ -311,12 +489,6 @@ def main():
     finally:
         # Cleanup
         print("\nShutting down...")
-
-        # Close the REPL kernel
-        try:
-            repl_tool.close()
-        except Exception as e:
-            logger.error(f"Error closing REPL: {e}")
 
         # Clean up missing dataset records
         removed = memory.cleanup_missing_datasets()

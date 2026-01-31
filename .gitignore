@@ -33,13 +33,33 @@ env/
 *.swp
 .DS_Store
 
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
 # Project specific
 .env
 .mcp.json
 .memory/
 .cache/
+.claude/
 data/
 !data/plots/.gitkeep
 
 # Logs
 *.log
+session.log
+session_retry.log
+
+# Generated/Temp files
+icechunk/
+save_new.py
+project_structure.txt
+dummy_key/
+test_reports/
+bug_reports/
+publications/
+user_queries.txt
+improvements_feedback.txt
