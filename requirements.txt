@@ -42,3 +42,9 @@ mcp>=1.0.0
 # Maritime Routing (Optional Extended Features)
 scgraph>=1.0.0
 global-land-mask>=1.0.0
+
+#Web
+fastapi
+uvicorn[standard]
+websockets
+jinja2
