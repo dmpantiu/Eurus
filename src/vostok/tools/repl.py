@@ -85,8 +85,6 @@ def _savefig_with_display(*args, **kwargs):
                             print(f"📂 Opened in Preview")
                         except:
                             print(f"   (Open manually to view)")
-                    else:
-                        print(f"   (Open in image viewer to see)")
                         
             except Exception:
                 pass
@@ -133,11 +131,7 @@ class SuperbPythonREPLTool(BaseTool):
 
     def _run(self, code: str) -> str:
         """Execute the python code and return the output."""
-        import signal
-        
-        # Timeout handler
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Execution timed out after 60 seconds. TIP: Resample data to daily/monthly before plotting large datasets.")
+        import threading
         
         # Security: Block dangerous operations
         dangerous_patterns = [
@@ -155,49 +149,54 @@ class SuperbPythonREPLTool(BaseTool):
             if pattern.lower().replace(" ", "") in code_lower:
                 return f"Security Error: '{pattern}' is not allowed. This REPL is for data analysis only."
         
-        # Capture stdout
-        old_stdout = sys.stdout
-        redirected_output = io.StringIO()
-        sys.stdout = redirected_output
+        # Execute with timeout using threading
+        result_container = {"output": None, "error": None}
         
-        # Set 60-second timeout
-        old_handler = signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(60)
-        
-        try:
-            # Try to compile as an expression first (like a real REPL)
+        def execute_code():
+            old_stdout = sys.stdout
+            redirected_output = io.StringIO()
+            sys.stdout = redirected_output
+            
             try:
-                compiled = compile(code, '<repl>', 'eval')
-                result = eval(compiled, self.globals_dict)
-                output = redirected_output.getvalue()
-                if result is not None:
-                    output += repr(result)
-                return output.strip() if output.strip() else repr(result) if result is not None else "(No output)"
-            except SyntaxError:
-                # Not an expression, execute as statements
-                exec(code, self.globals_dict)
-                output = redirected_output.getvalue()
+                # Try to compile as an expression first (like a real REPL)
+                try:
+                    compiled = compile(code, '<repl>', 'eval')
+                    result = eval(compiled, self.globals_dict)
+                    output = redirected_output.getvalue()
+                    if result is not None:
+                        output += repr(result)
+                    result_container["output"] = output.strip() if output.strip() else repr(result) if result is not None else "(No output)"
+                except SyntaxError:
+                    # Not an expression, execute as statements
+                    exec(code, self.globals_dict)
+                    output = redirected_output.getvalue()
+                    
+                    if not output.strip():
+                        result_container["output"] = "(Executed successfully. Use print() to see results.)"
+                    else:
+                        result_container["output"] = output.strip()
+                    
+            except Exception as e:
+                result_container["error"] = f"Error: {str(e)}\n{traceback.format_exc()}"
                 
-                if not output.strip():
-                    return "(Executed successfully. Use print() to see results.)"
-                
-                return output.strip()
+            finally:
+                sys.stdout = old_stdout
+                plt.close('all')
+                gc.collect()
         
-        except TimeoutError as e:
-            return f"TIMEOUT ERROR: {str(e)}"
-            
-        except Exception as e:
-            # Return the traceback
-            return f"Error: {str(e)}\\n{traceback.format_exc()}"
-            
-        finally:
-            signal.alarm(0)  # Cancel the alarm
-            signal.signal(signal.SIGALRM, old_handler)  # Restore old handler
-            sys.stdout = old_stdout
-            # Clear matplotlib figures to free memory
-            plt.close('all')
-            # Force garbage collection after each execution
-            gc.collect()
+        # Run in thread with 60-second timeout
+        exec_thread = threading.Thread(target=execute_code)
+        exec_thread.start()
+        exec_thread.join(timeout=60)
+        
+        if exec_thread.is_alive():
+            # Thread is still running after timeout
+            return "TIMEOUT ERROR: Execution exceeded 60 seconds. TIP: Resample data to daily/monthly before plotting (e.g., ds.resample(time='D').mean())."
+        
+        if result_container["error"]:
+            return result_container["error"]
+        
+        return result_container["output"] or "(No output)"
 
     async def _arun(self, code: str) -> str:
         """Use the tool asynchronously."""

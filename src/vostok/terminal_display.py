@@ -127,9 +127,7 @@ def display_image(image_path: str, width: int = 60) -> bool:
     if display_image_fallback(image_path):
         return True
     
-    # Final fallback: just print the path
-    print(f"📊 Plot saved: {image_path}")
-    print(f"   (Open in image viewer to see)")
+    # Final fallback: just return False, caller handles the message
     return False
 
 
