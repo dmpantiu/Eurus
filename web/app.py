@@ -76,11 +76,12 @@ def create_app() -> FastAPI:
     app.mount("/plots", StaticFiles(directory=str(PLOTS_DIR)), name="plots")
 
     # Include routers
-    from web.routes import api_router, websocket_router, pages_router
+    from web.routes import api_router, websocket_router, pages_router, tiles_router
 
     app.include_router(api_router, prefix="/api", tags=["api"])
     app.include_router(websocket_router, tags=["websocket"])
     app.include_router(pages_router, tags=["pages"])
+    app.include_router(tiles_router, tags=["tiles"])
 
     return app
 

@@ -298,6 +298,10 @@ class EurusChat {
                 this.addVideo(data.data, data.path, data.mimetype || 'video/mp4');
                 break;
 
+            case 'tile_map':
+                this.addInteractiveMap(data.tile_url, data.options || {});
+                break;
+
             case 'complete':
                 this.finalizeAssistantMessage(data.content);
                 this.sendBtn.disabled = false;
@@ -538,6 +542,86 @@ class EurusChat {
         });
 
         plotsDiv.appendChild(figure);
+        this.scrollToBottom();
+    }
+
+    /**
+     * Add an interactive Leaflet map to the chat.
+     * @param {string} tileUrl - Tile URL template, e.g. /tiles/WebMercatorQuad/{z}/{y}/{x}?variables=2t&...
+     * @param {object} options - Map options: { variable, bbox, colorscalerange, label }
+     */
+    addInteractiveMap(tileUrl, options = {}) {
+        this.removeThinkingIndicator();
+
+        if (!this.currentAssistantMessage) {
+            this.appendToAssistantMessage('');
+        }
+
+        const plotsDiv = this.currentAssistantMessage.querySelector('.message-plots');
+        const mapId = `leaflet-map-${Date.now()}`;
+
+        const figure = document.createElement('figure');
+        figure.className = 'plot-figure map-figure';
+
+        const label = options.label || options.variable || 'ERA5 Data';
+        const colorRange = options.colorscalerange || '';
+
+        figure.innerHTML = `
+            <div class="map-header">
+                <span class="map-label">🗺️ ${this.escapeHtml(label)}</span>
+                ${colorRange ? `<span class="map-colorscale">${this.escapeHtml(colorRange)}</span>` : ''}
+            </div>
+            <div id="${mapId}" class="leaflet-map-container"></div>
+            <div class="plot-actions">
+                <button class="fullscreen-btn" title="Fullscreen">Fullscreen</button>
+            </div>
+        `;
+
+        plotsDiv.appendChild(figure);
+
+        // Initialize Leaflet map
+        const bbox = options.bbox || [-180, -90, 180, 90];
+        const center = [(bbox[1] + bbox[3]) / 2, (bbox[0] + bbox[2]) / 2];
+        const zoom = options.zoom || 4;
+
+        const map = L.map(mapId, {
+            center: center,
+            zoom: zoom,
+            zoomControl: true,
+        });
+
+        // Base layer — dark CartoDB
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com/">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 19,
+        }).addTo(map);
+
+        // Data tile layer from xpublish-tiles
+        const dataLayer = L.tileLayer(tileUrl, {
+            maxZoom: 12,
+            opacity: 0.75,
+            attribution: 'ERA5 via xpublish-tiles',
+        }).addTo(map);
+
+        // Fit to bbox if provided
+        if (options.bbox) {
+            map.fitBounds([[bbox[1], bbox[0]], [bbox[3], bbox[2]]]);
+        }
+
+        // Fullscreen toggle
+        figure.querySelector('.fullscreen-btn').addEventListener('click', () => {
+            const container = document.getElementById(mapId);
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().then(() => map.invalidateSize());
+            } else {
+                document.exitFullscreen();
+            }
+        });
+
+        // Force map to re-render after DOM insertion
+        setTimeout(() => map.invalidateSize(), 100);
+
         this.scrollToBottom();
     }
 

@@ -755,3 +755,62 @@ dialog .close-modal:hover {
 [data-theme="light"] ::selection {
     background: rgba(26, 115, 232, 0.2);
 }
+
+/* ===== INTERACTIVE MAP (xpublish-tiles) ===== */
+.map-figure {
+    margin-top: 0.5rem;
+}
+
+.map-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--glass-border);
+    border-bottom: none;
+    border-radius: 0.5rem 0.5rem 0 0;
+    font-size: 0.8125rem;
+}
+
+.map-label {
+    font-weight: 600;
+    color: var(--accent-primary);
+}
+
+.map-colorscale {
+    font-family: 'SF Mono', Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.leaflet-map-container {
+    width: 100%;
+    height: 380px;
+    border: 1px solid var(--glass-border);
+    border-radius: 0 0 0.5rem 0.5rem;
+    z-index: 1;
+}
+
+/* Dark theme Leaflet overrides */
+[data-theme="dark"] .leaflet-control-zoom a {
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    border-color: var(--glass-border);
+}
+
+[data-theme="dark"] .leaflet-control-attribution {
+    background: rgba(15, 20, 25, 0.8);
+    color: var(--text-muted);
+    font-size: 0.625rem;
+}
+
+[data-theme="dark"] .leaflet-control-attribution a {
+    color: var(--accent-primary);
+}
+
+/* Fullscreen map */
+.leaflet-map-container:fullscreen {
+    height: 100vh !important;
+    border-radius: 0;
+}
