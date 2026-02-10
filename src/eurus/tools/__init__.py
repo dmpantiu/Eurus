@@ -18,6 +18,7 @@ from .era5 import era5_tool
 from .repl import PythonREPLTool
 from .routing import routing_tool
 from .analysis_guide import analysis_guide_tool, visualization_guide_tool
+from .interactive_map import interactive_map_tool
 
 # Optional dependency check for routing
 try:
@@ -29,7 +30,8 @@ except ImportError:
 
 def get_all_tools(
     enable_routing: bool = True,
-    enable_guide: bool = True
+    enable_guide: bool = True,
+    enable_tiles: bool = True
 ) -> List[BaseTool]:
     """
     Return a list of all available tools for the agent.
@@ -37,6 +39,7 @@ def get_all_tools(
     Args:
         enable_routing: If True, includes the maritime routing tool (default: True).
         enable_guide: If True, includes the guide tools (default: True).
+        enable_tiles: If True, includes the interactive map tile tool (default: True).
 
     Returns:
         List of LangChain tools for the agent.
@@ -58,6 +61,10 @@ def get_all_tools(
             tools.append(routing_tool)
         else:
             print("WARNING: Routing tools requested but dependencies (scgraph) are missing.")
+
+    # Interactive map tiles (xpublish-tiles)
+    if enable_tiles:
+        tools.append(interactive_map_tool)
 
     return tools
 
