@@ -191,23 +191,23 @@ class PythonREPLTool(BaseTool):
         """Clean up resources."""
         pass  # No kernel to close in simple implementation
 
-    def _display_image_in_terminal(self, base64_data: str):
-        """Display image inline in supported terminals (iTerm2, VSCode)."""
+    def _display_image_in_terminal(self, filepath: str, base64_data: str):
+        """Display image in terminal — iTerm2/VSCode inline, or macOS Preview fallback."""
         try:
             term_program = os.environ.get("TERM_PROGRAM", "")
             term = os.environ.get("TERM", "")
             
-            supported = False
-            if "iTerm.app" in term_program:
-                supported = True
-            elif "vscode" in term_program:
-                supported = True
-            elif "xterm-kitty" in term:
-                pass  # Kitty uses a different protocol
-                
-            if supported:
+            # iTerm2 / VSCode inline image protocol
+            if "iTerm.app" in term_program or "vscode" in term_program:
                 sys.stdout.write(f"\033]1337;File=inline=1;width=auto;preserveAspectRatio=1:{base64_data}\a\n")
                 sys.stdout.flush()
+                return
+            
+            # Fallback: open in Preview on macOS (only in CLI, not web)
+            if not self._plot_callback and os.path.exists(filepath):
+                import subprocess
+                subprocess.Popen(["open", filepath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                
         except Exception as e:
             logger.warning(f"Failed to display image in terminal: {e}")
 
@@ -220,8 +220,8 @@ class PythonREPLTool(BaseTool):
                         img_data = f.read()
                     b64_data = base64.b64encode(img_data).decode('utf-8')
                     
-                    # Display inline in terminal (iTerm2/VSCode)
-                    self._display_image_in_terminal(b64_data)
+                    # Display in terminal
+                    self._display_image_in_terminal(filepath, b64_data)
                     
                     # Send to web UI via callback
                     if self._plot_callback:
@@ -232,6 +232,7 @@ class PythonREPLTool(BaseTool):
     def _run(self, code: str) -> str:
         """Execute the python code and return the output."""
         import threading
+        from eurus.config import PLOTS_DIR
 
         # Security check FIRST
         security_error = _check_security(code)
@@ -240,30 +241,22 @@ class PythonREPLTool(BaseTool):
 
         # Use global lock for matplotlib thread safety
         with _repl_lock:
-            # Execute with timeout using threading
-            result_container = {"output": None, "error": None, "saved_files": []}
+            result_container = {"output": None, "error": None}
             
-            # Create wrapper to track saved files
-            original_savefig = plt.savefig
-            def tracking_savefig(*args, **kwargs):
-                result = original_savefig(*args, **kwargs)
-                filepath = None
-                if args:
-                    filepath = str(args[0])
-                elif 'fname' in kwargs:  # LLM often uses plt.savefig(fname="x.png")
-                    filepath = str(kwargs['fname'])
-                
-                if filepath:
-                    result_container["saved_files"].append(filepath)
-                    print(f"📊 Plot saved successfully")
-                return result
+            # Snapshot plots directory BEFORE execution
+            image_exts = {'.png', '.jpg', '.jpeg', '.svg', '.pdf', '.gif', '.webp'}
+            try:
+                before_files = {
+                    f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                    for f in os.listdir(PLOTS_DIR)
+                    if os.path.splitext(f)[1].lower() in image_exts
+                }
+            except FileNotFoundError:
+                before_files = {}
             
             def execute_code():
                 # Thread-safe stdout capture using contextlib
                 redirected_output = io.StringIO()
-                
-                # Inject tracking savefig
-                self.globals_dict["plt"].savefig = tracking_savefig
                 
                 try:
                     # Use redirect_stdout for thread-safe output capture
@@ -290,9 +283,7 @@ class PythonREPLTool(BaseTool):
                     result_container["error"] = f"Error: {str(e)}\n{traceback.format_exc()}"
                     
                 finally:
-                    # Restore original savefig
-                    self.globals_dict["plt"].savefig = original_savefig
-                    # Close figures AFTER capturing
+                    # Close figures AFTER saving
                     plt.close('all')
                     gc.collect()
             
@@ -305,9 +296,24 @@ class PythonREPLTool(BaseTool):
                 # Thread is still running after timeout
                 return "TIMEOUT ERROR: Execution exceeded 300 seconds (5 min). TIP: Resample data to daily/monthly before plotting (e.g., ds.resample(time='D').mean())."
             
-            # Capture plots and send to web interface
-            if result_container["saved_files"]:
-                self._capture_and_notify_plots(result_container["saved_files"], code)
+            # Detect NEW plot files by comparing directory snapshots
+            try:
+                after_files = {
+                    f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                    for f in os.listdir(PLOTS_DIR)
+                    if os.path.splitext(f)[1].lower() in image_exts
+                }
+            except FileNotFoundError:
+                after_files = {}
+            
+            new_files = []
+            for fname, mtime in after_files.items():
+                if fname not in before_files or mtime > before_files[fname]:
+                    new_files.append(os.path.join(PLOTS_DIR, fname))
+            
+            if new_files:
+                print(f"📊 {len(new_files)} plot(s) saved")
+                self._capture_and_notify_plots(new_files, code)
             
             if result_container["error"]:
                 return result_container["error"]
