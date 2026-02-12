@@ -191,18 +191,41 @@ class PythonREPLTool(BaseTool):
         """Clean up resources."""
         pass  # No kernel to close in simple implementation
 
+    def _display_image_in_terminal(self, base64_data: str):
+        """Display image inline in supported terminals (iTerm2, VSCode)."""
+        try:
+            term_program = os.environ.get("TERM_PROGRAM", "")
+            term = os.environ.get("TERM", "")
+            
+            supported = False
+            if "iTerm.app" in term_program:
+                supported = True
+            elif "vscode" in term_program:
+                supported = True
+            elif "xterm-kitty" in term:
+                pass  # Kitty uses a different protocol
+                
+            if supported:
+                sys.stdout.write(f"\033]1337;File=inline=1;width=auto;preserveAspectRatio=1:{base64_data}\a\n")
+                sys.stdout.flush()
+        except Exception as e:
+            logger.warning(f"Failed to display image in terminal: {e}")
+
     def _capture_and_notify_plots(self, saved_files: list, code: str = ""):
         """Capture plots and notify via callback."""
-        if not self._plot_callback:
-            return
-            
         for filepath in saved_files:
             try:
                 if os.path.exists(filepath):
                     with open(filepath, 'rb') as f:
                         img_data = f.read()
                     b64_data = base64.b64encode(img_data).decode('utf-8')
-                    self._plot_callback(b64_data, filepath, code)
+                    
+                    # Display inline in terminal (iTerm2/VSCode)
+                    self._display_image_in_terminal(b64_data)
+                    
+                    # Send to web UI via callback
+                    if self._plot_callback:
+                        self._plot_callback(b64_data, filepath, code)
             except Exception as e:
                 print(f"Warning: Failed to capture plot {filepath}: {e}")
 
