@@ -25,8 +25,13 @@ Commands:
 import os
 import sys
 import logging
+import warnings
 from pathlib import Path
 from datetime import datetime
+
+# Suppress noisy warnings from xarray/zarr
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", message="Consolidated metadata", category=UserWarning)
 
 from dotenv import load_dotenv
 

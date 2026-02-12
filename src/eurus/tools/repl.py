@@ -313,8 +313,11 @@ class PythonREPLTool(BaseTool):
             
             new_files = []
             for fname, mtime in after_files.items():
+                full_path = os.path.join(PLOTS_DIR, fname)
                 if fname not in before_files or mtime > before_files[fname]:
-                    new_files.append(os.path.join(PLOTS_DIR, fname))
+                    # Only report truly new files (not already displayed this session)
+                    if full_path not in self._displayed_plots:
+                        new_files.append(full_path)
             
             if new_files:
                 print(f"📊 {len(new_files)} plot(s) saved")

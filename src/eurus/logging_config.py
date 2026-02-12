@@ -58,9 +58,11 @@ def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logg
     file_handler.setFormatter(detailed_formatter)
     root_logger.addHandler(file_handler)
     
-    # Console handler - INFO and above
+    # Console handler - respects ERA5_LOG_LEVEL env var (default: INFO)
+    console_level_name = os.environ.get("ERA5_LOG_LEVEL", "INFO").upper()
+    console_level = getattr(logging, console_level_name, logging.INFO)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.INFO)
+    console_handler.setLevel(console_level)
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
     
