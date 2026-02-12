@@ -169,6 +169,7 @@ class PythonREPLTool(BaseTool):
         super().__init__(**kwargs)
         self.working_dir = working_dir
         self._plot_callback = None
+        self._displayed_plots: set = set()  # Track files already opened in terminal
         # Initialize globals with SAFE libraries only
         # SECURITY: os/shutil/Path removed - they allow reading arbitrary files
         self.globals_dict = {
@@ -193,12 +194,16 @@ class PythonREPLTool(BaseTool):
 
     def _display_image_in_terminal(self, filepath: str, base64_data: str):
         """Display image in terminal — iTerm2/VSCode inline, or macOS Preview fallback."""
+        # Skip if already displayed this file in this session
+        if filepath in self._displayed_plots:
+            return
+        self._displayed_plots.add(filepath)
+        
         try:
             term_program = os.environ.get("TERM_PROGRAM", "")
-            term = os.environ.get("TERM", "")
             
-            # iTerm2 / VSCode inline image protocol
-            if "iTerm.app" in term_program or "vscode" in term_program:
+            # iTerm2 inline image protocol (only iTerm2 supports this)
+            if "iTerm.app" in term_program:
                 sys.stdout.write(f"\033]1337;File=inline=1;width=auto;preserveAspectRatio=1:{base64_data}\a\n")
                 sys.stdout.flush()
                 return
