@@ -65,3 +65,6 @@ user_queries.txt
 improvements_feedback.txt
 docs/
 deep_searches/
+# Generated project dumps
+full_project.txt
+src_structure.txt
