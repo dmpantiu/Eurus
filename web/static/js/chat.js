@@ -26,7 +26,6 @@ class EurusChat {
         this.saveKeysBtn = document.getElementById('save-keys-btn');
         this.openaiKeyInput = document.getElementById('openai-key');
         this.arraylakeKeyInput = document.getElementById('arraylake-key');
-        this.hfKeyInput = document.getElementById('hf-key');
 
         marked.setOptions({
             highlight: (code, lang) => {
@@ -81,7 +80,7 @@ class EurusChat {
         this.saveKeysBtn.addEventListener('click', () => this.saveAndSendKeys());
 
         // Allow Enter in key fields to submit
-        [this.openaiKeyInput, this.arraylakeKeyInput, this.hfKeyInput].forEach(input => {
+        [this.openaiKeyInput, this.arraylakeKeyInput].forEach(input => {
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -101,7 +100,6 @@ class EurusChat {
             const keys = JSON.parse(saved);
             if (keys.openai_api_key) this.openaiKeyInput.value = keys.openai_api_key;
             if (keys.arraylake_api_key) this.arraylakeKeyInput.value = keys.arraylake_api_key;
-            if (keys.hf_token) this.hfKeyInput.value = keys.hf_token;
         } catch (e) {
             sessionStorage.removeItem('eurus-keys');
         }
@@ -119,7 +117,6 @@ class EurusChat {
                     type: 'configure_keys',
                     openai_api_key: keys.openai_api_key,
                     arraylake_api_key: keys.arraylake_api_key || '',
-                    hf_token: keys.hf_token || '',
                 }));
             }
         } catch (e) {
@@ -130,7 +127,6 @@ class EurusChat {
     saveAndSendKeys() {
         const openaiKey = this.openaiKeyInput.value.trim();
         const arraylakeKey = this.arraylakeKeyInput.value.trim();
-        const hfKey = this.hfKeyInput.value.trim();
 
         if (!openaiKey) {
             this.openaiKeyInput.focus();
@@ -141,7 +137,6 @@ class EurusChat {
         const keysPayload = {
             openai_api_key: openaiKey,
             arraylake_api_key: arraylakeKey,
-            hf_token: hfKey,
         };
         sessionStorage.setItem('eurus-keys', JSON.stringify(keysPayload));
 
