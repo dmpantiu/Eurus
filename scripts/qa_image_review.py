@@ -26,7 +26,6 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 # ── Gemini Config ───────────────────────────────────────────────────
 PRIMARY_MODEL = "gemini-3-pro-preview"
-FALLBACK_MODEL = "gemini-2.0-flash"
 
 # ── The query definitions (mirrored from qa_runner.py) ──────────────
 QA_QUERIES = {

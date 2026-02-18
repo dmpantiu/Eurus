@@ -4,12 +4,15 @@ REST API Routes
 Health checks, cache management, and configuration endpoints.
 """
 
+import io
 import os
 import sys
+import zipfile
 from pathlib import Path
 from typing import List, Dict, Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 # Add project root and src/ to path for eurus package
@@ -114,6 +117,40 @@ async def list_cache():
             total_size += size
 
     return CacheResponse(datasets=datasets, total_size_bytes=total_size)
+
+
+@router.get("/cache/download")
+async def download_dataset(path: str = Query(..., description="Path to Zarr dataset")):
+    """Download a cached Zarr dataset as a ZIP archive."""
+    dataset_path = Path(path).resolve()
+    data_dir = (PROJECT_ROOT / "data").resolve()
+
+    # Security: only allow paths under PROJECT_ROOT/data
+    if not str(dataset_path).startswith(str(data_dir)):
+        raise HTTPException(status_code=403, detail="Access denied: path outside data directory")
+
+    if not dataset_path.exists():
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    # Create ZIP in memory
+    zip_buffer = io.BytesIO()
+    with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        if dataset_path.is_dir():
+            for file_path in dataset_path.rglob("*"):
+                if file_path.is_file():
+                    arcname = file_path.relative_to(dataset_path.parent)
+                    zf.write(file_path, arcname)
+        else:
+            zf.write(dataset_path, dataset_path.name)
+
+    zip_buffer.seek(0)
+    filename = f"{dataset_path.name}.zip"
+
+    return StreamingResponse(
+        zip_buffer,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
 
 
 @router.get("/config", response_model=ConfigResponse)

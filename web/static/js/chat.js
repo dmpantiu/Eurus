@@ -61,6 +61,10 @@ class EurusChat {
                 // Keys pre-configured on server — hide the panel
                 this.apiKeysPanel.style.display = 'none';
                 this.keysConfigured = true;
+                // Enable send if WS is already connected
+                if (this.isConnected) {
+                    this.sendBtn.disabled = false;
+                }
             } else {
                 // No server keys — show panel, user must enter keys each session
                 this.apiKeysPanel.style.display = 'block';
@@ -148,7 +152,7 @@ class EurusChat {
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
 
-                if (this.serverKeysPresent.openai) {
+                if (this.serverKeysPresent.openai || this.keysConfigured) {
                     this.sendBtn.disabled = false;
                 }
             };
@@ -679,12 +683,53 @@ class EurusChat {
             const data = await response.json();
 
             if (data.datasets && data.datasets.length > 0) {
-                let html = '<table><thead><tr><th>Variable</th><th>Period</th><th>Type</th></tr></thead><tbody>';
+                const formatSize = (bytes) => {
+                    if (bytes < 1024) return bytes + ' B';
+                    if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
+                    return (bytes / 1048576).toFixed(1) + ' MB';
+                };
+
+                let html = '<table><thead><tr><th>Variable</th><th>Period</th><th>Type</th><th>Size</th><th></th></tr></thead><tbody>';
                 for (const ds of data.datasets) {
-                    html += `<tr><td>${ds.variable}</td><td>${ds.start_date} to ${ds.end_date}</td><td>${ds.query_type}</td></tr>`;
+                    html += `<tr>
+                        <td>${ds.variable}</td>
+                        <td>${ds.start_date} to ${ds.end_date}</td>
+                        <td>${ds.query_type}</td>
+                        <td>${formatSize(ds.file_size_bytes)}</td>
+                        <td><button class="cache-download-btn" data-path="${ds.path}" title="Download as ZIP">⬇</button></td>
+                    </tr>`;
                 }
                 html += '</tbody></table>';
+                html += `<p class="cache-total">Total: ${formatSize(data.total_size_bytes)} across ${data.datasets.length} dataset(s)</p>`;
                 content.innerHTML = html;
+
+                // Attach download handlers
+                content.querySelectorAll('.cache-download-btn').forEach(btn => {
+                    btn.addEventListener('click', async (e) => {
+                        const path = e.target.dataset.path;
+                        const origText = e.target.textContent;
+                        e.target.textContent = '⏳';
+                        e.target.disabled = true;
+                        try {
+                            const resp = await fetch(`/api/cache/download?path=${encodeURIComponent(path)}`);
+                            if (!resp.ok) throw new Error('Download failed');
+                            const blob = await resp.blob();
+                            const url = URL.createObjectURL(blob);
+                            const a = document.createElement('a');
+                            a.href = url;
+                            a.download = path.split('/').pop() + '.zip';
+                            document.body.appendChild(a);
+                            a.click();
+                            a.remove();
+                            URL.revokeObjectURL(url);
+                            e.target.textContent = '✅';
+                            setTimeout(() => { e.target.textContent = origText; e.target.disabled = false; }, 2000);
+                        } catch (err) {
+                            e.target.textContent = '❌';
+                            setTimeout(() => { e.target.textContent = origText; e.target.disabled = false; }, 2000);
+                        }
+                    });
+                });
             } else {
                 content.innerHTML = '<p>No cached datasets.</p>';
             }
