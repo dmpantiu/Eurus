@@ -30,12 +30,16 @@ jobs:
           from huggingface_hub import HfApi
           import os
           api = HfApi()
-          api.upload_folder(
-              folder_path='.',
-              repo_id='dmpantiu/Eurus',
-              repo_type='space',
-              token=os.environ['HF_TOKEN'],
-              ignore_patterns=['.git/*', '.github/*'],
-          )
-          print('Upload complete')
+          token = os.environ['HF_TOKEN']
+          for repo_id in ['CliDyn/Eurus', 'dmpantiu/Eurus']:
+              print(f'Uploading to {repo_id}...')
+              api.upload_folder(
+                  folder_path='.',
+                  repo_id=repo_id,
+                  repo_type='space',
+                  token=token,
+                  ignore_patterns=['.git/*', '.github/*'],
+              )
+              print(f'Upload to {repo_id} complete')
+          print('All uploads complete')
           "
