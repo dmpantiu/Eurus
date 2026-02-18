@@ -21,6 +21,22 @@ jobs:
         with:
           python-version: '3.12'
 
+      - name: Inject HuggingFace metadata into README
+        run: |
+          HF_HEADER="---
+          title: Eurus
+          emoji: 🌊
+          colorFrom: purple
+          colorTo: blue
+          sdk: docker
+          pinned: false
+          ---
+          "
+          # Remove leading spaces from heredoc indentation
+          HF_HEADER=$(echo "$HF_HEADER" | sed 's/^          //')
+          echo "$HF_HEADER" | cat - README.md > README_hf.md
+          mv README_hf.md README.md
+
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
