@@ -31,6 +31,42 @@ from eurus.memory import get_memory
 logger = logging.getLogger(__name__)
 
 
+def _arraylake_snippet(
+    variable: str,
+    query_type: str,
+    start_date: str,
+    end_date: str,
+    min_lat: float,
+    max_lat: float,
+    min_lon: float,
+    max_lon: float,
+) -> str:
+    """Generate a self-contained Python snippet for direct Arraylake data access."""
+    return (
+        "# ── Direct Arraylake Retrieval (copy-paste into any Python env) ──\n"
+        "import os, xarray as xr\n"
+        "from arraylake import Client\n"
+        "\n"
+        "client = Client(token=os.environ['ARRAYLAKE_API_KEY'])\n"
+        f"repo   = client.get_repo('{CONFIG.data_source}')\n"
+        "session = repo.readonly_session('main')\n"
+        "\n"
+        f"ds = xr.open_dataset(session.store, engine='zarr',\n"
+        f"                     consolidated=False, zarr_format=3,\n"
+        f"                     chunks=None, group='{query_type}')\n"
+        "\n"
+        f"subset = ds['{variable}'].sel(\n"
+        f"    time=slice('{start_date}', '{end_date}'),\n"
+        f"    latitude=slice({max_lat}, {min_lat}),   # ERA5: descending lat\n"
+        f"    longitude=slice({min_lon}, {max_lon}),\n"
+        ")\n"
+        "\n"
+        "# Compute & save locally\n"
+        f"subset.load().to_dataset(name='{variable}').to_zarr('my_data.zarr', mode='w')\n"
+        "# ────────────────────────────────────────────────────────────────\n"
+    )
+
+
 def _format_coord(value: float) -> str:
     """Format coordinates for stable, filename-safe identifiers."""
     if abs(value) < 0.005:
@@ -448,10 +484,18 @@ def retrieve_era5_data(
             # Size guard — prevent downloading datasets larger than the configured limit
             estimated_gb = ds_out.nbytes / (1024 ** 3)
             if estimated_gb > CONFIG.max_download_size_gb:
+                snippet = _arraylake_snippet(
+                    short_var, query_type, start_date, end_date,
+                    min_latitude, max_latitude,
+                    min_longitude if min_longitude >= 0 else min_longitude % 360,
+                    max_longitude if max_longitude >= 0 else max_longitude % 360,
+                )
                 return (
                     f"Error: Estimated download size ({estimated_gb:.1f} GB) exceeds the "
                     f"{CONFIG.max_download_size_gb} GB limit.\n"
-                    f"Try narrowing the time range or spatial area."
+                    f"Try narrowing the time range or spatial area.\n\n"
+                    f"Alternatively, fetch it yourself with this snippet:\n\n"
+                    f"{snippet}"
                 )
             if estimated_gb > 1.0:
                 logger.info(
@@ -527,6 +571,12 @@ def retrieve_era5_data(
                 logger.info(f"Retrying in {wait_time:.1f}s...")
                 time.sleep(wait_time)
             else:
+                snippet = _arraylake_snippet(
+                    short_var, query_type, start_date, end_date,
+                    min_latitude, max_latitude,
+                    min_longitude if min_longitude >= 0 else min_longitude % 360,
+                    max_longitude if max_longitude >= 0 else max_longitude % 360,
+                )
                 return (
                     f"Error: Failed after {CONFIG.max_retries} attempts.\n"
                     f"Last error: {error_msg}\n\n"
@@ -534,7 +584,9 @@ def retrieve_era5_data(
                     f"1. Check your ARRAYLAKE_API_KEY\n"
                     f"2. Verify internet connection\n"
                     f"3. Try a smaller date range or region\n"
-                    f"4. Check if variable '{short_var}' is available"
+                    f"4. Check if variable '{short_var}' is available\n\n"
+                    f"Manual retrieval snippet:\n\n"
+                    f"{snippet}"
                 )
 
     return "Error: Unexpected failure in retrieval logic."
