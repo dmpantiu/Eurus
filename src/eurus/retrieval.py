@@ -453,6 +453,10 @@ def retrieve_era5_data(
                     f"{CONFIG.max_download_size_gb} GB limit.\n"
                     f"Try narrowing the time range or spatial area."
                 )
+            if estimated_gb > 1.0:
+                logger.info(
+                    f"Large download ({estimated_gb:.1f} GB) — this may take a few minutes, please wait..."
+                )
 
             # Clear encoding for clean serialization
             for var in ds_out.variables:

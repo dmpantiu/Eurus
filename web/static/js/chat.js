@@ -42,8 +42,8 @@ class EurusChat {
         this.init();
     }
 
-    init() {
-        this.checkKeysStatus();
+    async init() {
+        await this.checkKeysStatus();
         this.connect();
         this.setupEventListeners();
         this.setupImageModal();
