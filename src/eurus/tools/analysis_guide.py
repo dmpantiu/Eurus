@@ -48,6 +48,8 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Loading multi-year global data into memory causes OOM. Keep operations lazy until subsetted.
 - ⚠️ Some Zarr stores have `valid_time` instead of `time` — check with `.coords`.
+- ⚠️ CRITICAL — LONGITUDE WRAPPING: ERA5 natively uses 0-360° longitudes. If your region is in the Western Hemisphere (Americas, Atlantic) or crosses the Prime Meridian, you MUST convert longitudes to -180/+180 BEFORE slicing or plotting. Use `ds.assign_coords(longitude=(((ds.longitude + 180) % 360) - 180)).sortby('longitude')`. Failing to do this causes maps to be 95% blank space with data crushed into a tiny sliver.
+- ⚠️ UNIT SAFETY: When computing temperature DIFFERENCES or ANOMALIES, do NOT subtract 273.15 from the result. A temperature difference in Kelvin is numerically identical to a difference in °C. Subtracting 273.15 from an anomaly produces absurd ±200°C values.
 """,
 
     "spatial_subset": """
@@ -71,6 +73,8 @@ ANALYSIS_GUIDES = {
 - ⚠️ Slicing `slice(south, north)` on descending coords → empty result.
 - ⚠️ Crossing the prime meridian in 0-360 coords requires concatenating two slices.
 - ⚠️ Use `.sel(method='nearest')` for point extraction, not exact matching.
+- ⚠️ If requested bounds use negative longitudes (e.g., -120 to -80 for US West Coast), ensure you have applied the longitude wrapping from `load_data` FIRST. Otherwise slicing negative values on a 0-360 dataset returns empty data.
+- ⚠️ Always check latitude orientation: use `slice(north, south)` if descending, `slice(south, north)` if ascending. Verify with `ds.latitude[0] > ds.latitude[-1]`.
 """,
 
     "temporal_subset": """
@@ -93,6 +97,7 @@ ANALYSIS_GUIDES = {
 - ⚠️ DJF wraps across years — verify start/end boundaries.
 - ⚠️ `.resample()` (continuous) ≠ `.groupby()` (climatological). Don't mix them up.
 - ⚠️ Radiation variables (`ssr`, `ssrd`) are accumulated — need differencing, not averaging.
+- ⚠️ Hourly data is massive. Resample to daily ('1D') or monthly ('MS') IMMEDIATELY after spatial subsetting to avoid Memory/Timeout errors.
 """,
 
     # -------------------------------------------------------------------------
@@ -123,6 +128,7 @@ ANALYSIS_GUIDES = {
 - ⚠️ Short baselines amplify noise.
 - ⚠️ Daily climatologies with <30yr baseline are noisy → use monthly grouping.
 - ⚠️ Be explicit: spatial anomaly vs temporal anomaly.
+- ⚠️ CRITICAL MATH BUG: Anomaly in Kelvin EXACTLY EQUALS Anomaly in Celsius. DO NOT subtract 273.15 from a temperature anomaly! If you compute `(SST_K - CLIM_K) - 273.15`, you get absurd ±200°C anomalies. Either convert both to °C BEFORE subtracting, or leave the difference as-is.
 
 ### Interpretation
 - Positive = warmer/wetter/windier than normal.
@@ -178,6 +184,7 @@ ANALYSIS_GUIDES = {
 - ⚠️ Trend on daily data without removing seasonality → dominated by summer/winter swings.
 - ⚠️ Short series have uncertain trends — report confidence intervals.
 - ⚠️ Autocorrelation can inflate significance — consider using Mann-Kendall test.
+- ⚠️ If p > 0.05, you MUST explicitly state the trend is NOT statistically significant. Do not present insignificant trends as real signals.
 
 ### Interpretation
 - Report as °C/decade. Use stippling on maps for significant areas.
@@ -201,6 +208,8 @@ ANALYSIS_GUIDES = {
 - [ ] Latitude weighting applied
 - [ ] Variance explained (%) calculated per mode
 - [ ] Physical interpretation attempted for leading modes
+- [ ] Maps of EOF patterns MUST include coastlines (use Cartopy) for geographic context
+- [ ] Variance explained (%) MUST be explicitly displayed in each plot title
 
 ### Common Pitfalls
 - ⚠️ Unweighted EOFs inflate polar regions artificially.
@@ -445,6 +454,10 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Without rolling mean, the index is too noisy for classification.
 - ⚠️ Using incorrect region bounds produces a different (invalid) index.
+- ⚠️ **MJO PROXY FAILURE:** Do NOT use Skin Temperature (`skt`) or SST to track the MJO over the ocean. The signal is effectively zero (~0.1°C variance). Always use Precipitation (`tp`), Total Column Water Vapour (`tcwv`), or Total Cloud Cover (`tcc`).
+
+### Additional Indices
+- **IOD (Indian Ocean Dipole)**: `sst` anomaly diff between Western (50-70°E, 10°S-10°N) and Eastern (90-110°E, 10°S-0°) poles.
 """,
 
     "extremes": """
@@ -496,6 +509,7 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Absolute precipitation deficits are meaningless in deserts — always standardize.
 - ⚠️ Gamma distribution fit (proper SPI) is better than raw Z-score for precip.
+- ⚠️ CRITICAL BASELINE LENGTH: You MUST use a minimum 30-year baseline (e.g., 1991-2020) to compute the mean and std for SPI standardization. Computing z-scores on a 5-year period (e.g., using 2020-2024 as both study and reference period) is statistically invalid and creates artificial extreme spikes.
 
 ### Interpretation
 - SPI < -1.0: Moderate drought. < -1.5: Severe. < -2.0: Extreme.
@@ -524,6 +538,12 @@ ANALYSIS_GUIDES = {
 - ⚠️ Monthly data — physically impossible to detect heatwaves.
 - ⚠️ A single hot day is not a heatwave — duration matters.
 - ⚠️ Nighttime temperatures (`t2` at 00/06 UTC) also matter for health impact.
+- ⚠️ Using a flat seasonal anomaly threshold (e.g., "Summer Mean > +2°C") is NOT a heatwave detection method. This produces unphysical spatial artifacts. Heatwaves are discrete DAILY extreme events requiring per-calendar-day thresholds.
+
+### Marine Heatwave Extension
+- For ocean/SST heatwaves, use daily mean SST (not daily max).
+- Marine heatwaves require ≥5 consecutive days above the 90th percentile threshold.
+- Use a long baseline (e.g., 1991-2020) with a ±5-day smoothed calendar-day threshold.
 
 ### Interpretation
 - Heatwaves require BOTH intensity (high T) AND duration (consecutive days).
@@ -737,6 +757,12 @@ ANALYSIS_GUIDES = {
   - Pressure: `viridis` | Cloud: `Greys` | Anomalies: `RdBu_r`
 - [ ] NEVER use `jet`
 - [ ] Colorbar has label with units
+- [ ] CARTOPY IS MANDATORY: Always use `cartopy.crs` projections with `ax.coastlines()` and `ax.add_feature(cfeature.BORDERS)`. Maps without coastlines appear as meaningless color blobs.
+- [ ] Always pass `transform=ccrs.PlateCarree()` to `pcolormesh`/`contourf` when using Cartopy.
+- [ ] For Arctic regions (latitude > 60°N), use `ccrs.NorthPolarStereo()` instead of `PlateCarree` to avoid extreme distortion.
+- [ ] For US regional maps, add `cfeature.STATES` for state boundaries.
+- [ ] NEVER use `Greys` colormap for humidity or precipitation. Use `YlGnBu` or `BrBG`.
+- [ ] Categorical/binary maps (like hotspot masks) should use a categorical legend, not a continuous 0-1 colorbar.
 
 ### Common Pitfalls
 - ⚠️ Diverging cmap on absolute data is misleading — diverging only for anomalies.
@@ -766,6 +792,10 @@ ANALYSIS_GUIDES = {
 - **Uncertainty band**: `ax.fill_between(time, mean-std, mean+std, alpha=0.2)`
 - **Event markers**: `ax.axvline(date, color='red', ls='--')`
 - **Twin axis**: `ax2 = ax.twinx()` for second variable
+- **Date formatting**: Always use proper date labels (e.g., `mdates.DateFormatter('%b %d')`), NEVER raw day-of-month integers (1, 2, ... 31).
+- **Y-axis range**: Do not set y-limits too narrow to artificially exaggerate peaks. Keep ranges physically reasonable.
+- **Dual axes coloring**: If using `ax2 = ax.twinx()`, color the y-tick labels to match the corresponding line colors.
+- **Grid lines**: Always add `ax.grid(True, alpha=0.3)` for precise value comparison.
 
 ### Common Pitfalls
 - ⚠️ Hourly data over 10+ years → unreadable block of ink. Resample to daily first.
@@ -792,6 +822,9 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Without `TwoSlopeNorm`, skewed data makes 0 appear colored → reader is misled.
 - ⚠️ Symmetric vmin/vmax (`vmax = max(abs(data))`) can also work but wastes color range.
+- ⚠️ CARTOPY IS MANDATORY for anomaly maps — always add `ax.coastlines()` and `ax.add_feature(cfeature.BORDERS)`.
+- ⚠️ ROBUST COLORBAR LIMITS: NEVER use raw `data.min()` and `data.max()` for anomaly map limits. A single outlier cell can result in ±200°C scale making the map unreadable. Always use percentile-based limits: `vmax = np.nanpercentile(np.abs(data), 98)`.
+- ⚠️ Always pass `transform=ccrs.PlateCarree()` when plotting with Cartopy.
 """,
 
     "visualization_wind": """
@@ -812,8 +845,11 @@ ANALYSIS_GUIDES = {
 - [ ] Wind barbs: `ax.barbs()` for meteorological display
 
 ### Common Pitfalls
-- ⚠️ Full-resolution quiver = completely black, unreadable mess.
+- ⚠️ Full-resolution quiver = completely black, unreadable mess. MUST subsample vectors.
 - ⚠️ Check arrow scaling — default autoscale can make light winds invisible.
+- ⚠️ REFERENCE ARROW MANDATORY: Always add `ax.quiverkey(q, 0.9, 1.05, 10, '10 m/s', labelpos='E')`. Without this, arrow magnitudes are uninterpretable.
+- ⚠️ CARTOPY IS MANDATORY: Add `ax.coastlines()` and `ax.add_feature(cfeature.BORDERS)` to all wind maps.
+- ⚠️ Always pass `transform=ccrs.PlateCarree()` to quiver/streamplot when using Cartopy.
 
 ### Interpretation
 - Arrows = direction, background color = magnitude. Cyclonic rotation = storm.
@@ -838,6 +874,8 @@ ANALYSIS_GUIDES = {
 
 ### Common Pitfalls
 - ⚠️ Auto-scaled panels = impossible to compare visually. Always lock limits.
+- ⚠️ Use Cartopy projections for ALL map panels: `subplot_kw={'projection': ccrs.PlateCarree()}`. Add `ax.coastlines()` to each.
+- ⚠️ Always pass `transform=ccrs.PlateCarree()` to each panel's plotting call.
 """,
 
     "visualization_profile": """
@@ -859,6 +897,11 @@ ANALYSIS_GUIDES = {
 
 ### Common Pitfalls
 - ⚠️ Swapping axes makes the diagram unintuitive. Time → X-axis convention.
+
+### Proxy Selection for Hovmöller
+- ⚠️ For MJO tracking over the ocean, DO NOT use Skin Temperature (`skt`) — the signal is too weak (~0.1°C). Use Convective Precipitation (`cp`), Total Precipitation (`tp`), Total Column Water Vapour (`tcwv`), or Total Cloud Cover (`tcc`).
+- ⚠️ Remove the seasonal cycle (subtract 30-day running mean) to isolate intraseasonal signals like MJO (30-60 day periods).
+- ⚠️ Longitude axis must use standard geographic convention (-180 to +180), not 0-360.
 
 ### Interpretation
 - Diagonal banding = propagating waves/systems. Vertical banding = stationary patterns.
@@ -911,6 +954,7 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Auto-scaled panels flash/jump between frames — always lock limits.
 - ⚠️ MP4/GIF generation may fail in headless — use PNG grids instead.
+- ⚠️ Use Cartopy projections for ALL map panels: `subplot_kw={'projection': ccrs.PlateCarree()}`. Add `.coastlines()` to each axis.
 """,
 
     "visualization_dashboard": """
@@ -934,6 +978,8 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Cramming too much into small figure → illegible text. Scale figure size up.
 - ⚠️ Different aspect ratios between map and time series need explicit gridspec ratios.
+- ⚠️ MIXED PROJECTION DANGER: Cartopy projections must ONLY be applied to MAP axes. If you add `projection=ccrs.PlateCarree()` to a time series or histogram panel, it will break the plot. Use `fig.add_subplot(gs[...], projection=ccrs.PlateCarree())` ONLY for spatial map panels.
+- ⚠️ For dashboards showing Americas/Atlantic regions (e.g., Hurricane Otis), always wrap longitudes to -180/+180 and use `ax.set_extent([west, east, south, north])`.
 """,
 
     "visualization_contour": """
@@ -958,6 +1004,8 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ Too many levels → cluttered, unreadable. 10-15 levels max.
 - ⚠️ Non-uniform level spacing requires manual colorbar ticks.
+- ⚠️ CARTOPY IS MANDATORY: Use `subplot_kw={'projection': ccrs.PlateCarree()}` and add `ax.coastlines()`.
+- ⚠️ Always pass `transform=ccrs.PlateCarree()` to `contour` and `contourf` calls.
 
 ### Interpretation
 - Tightly packed isobars = strong pressure gradient = high winds.
@@ -1040,6 +1088,8 @@ ANALYSIS_GUIDES = {
 ### Common Pitfalls
 - ⚠️ No legend → colored dots are meaningless to the user.
 - ⚠️ Route line + waypoints must be on top (high zorder) to not be hidden by background.
+- ⚠️ CARTOPY IS MANDATORY: Always add `ax.coastlines()` — without land boundaries it is impossible to see where the route passes relative to coastlines (e.g., Suez Canal, Malacca Strait).
+- ⚠️ Always pass `transform=ccrs.PlateCarree()` to route scatter/line plotting calls when using Cartopy.
 """,
 }
 
